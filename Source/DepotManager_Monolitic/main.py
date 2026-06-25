@@ -1,21 +1,21 @@
-import os
-import sys
-import json
-import shutil
-import re
-import zipfile
 import asyncio
 import concurrent.futures
-import aiohttp
+import json
 import logging
-import threading
+import os
+import re
+import shutil
 import subprocess
+import sys
 import tempfile
-from pathlib import Path
-from typing import Optional
+import threading
 import tkinter as tk
-from tkinter import ttk, messagebox, scrolledtext
+import zipfile
+from pathlib import Path
+from tkinter import messagebox, scrolledtext, ttk
+from typing import Optional
 
+import aiohttp
 
 # ---------------------------------------------------------------------------
 # CONSTANTS
@@ -68,7 +68,7 @@ APPID_MAX = 2_000_000_000
 
 _RE_LUA_ADDAPPID = re.compile(r'addappid\((\d+),\s*\d+,\s*"([A-Za-z0-9]+)"\)')
 _RE_LUA_TABLE = re.compile(r'\[(\d+)\]\s*=\s*"([A-Za-z0-9]+)"')
-_RE_MANIFEST = re.compile(r'^(\d+)_(\d+)\.manifest$')
+_RE_MANIFEST = re.compile(r"^(\d+)_(\d+)\.manifest$")
 
 # ---------------------------------------------------------------------------
 # LOGGING
@@ -84,6 +84,7 @@ logging.basicConfig(
     ],
 )
 logger = logging.getLogger("DepotManager")
+
 
 # ---------------------------------------------------------------------------
 # APPLICATION
@@ -135,7 +136,7 @@ class App(tk.Tk):
     # -----------------------------------------------------------------------
     def _print_banner(self) -> None:
         self.console.insert(tk.END, _BANNER)
-    
+
     def on_close(self) -> None:
         self._flush_logs()
 
@@ -143,10 +144,15 @@ class App(tk.Tk):
             if self._current_temp_dir and self._current_temp_dir.exists():
                 try:
                     await asyncio.to_thread(shutil.rmtree, self._current_temp_dir)
-                    logger.info("Temporary directory removed: %s", self._current_temp_dir)
+                    logger.info(
+                        "Temporary directory removed: %s", self._current_temp_dir
+                    )
                 except OSError as exc:
-                    logger.warning("Cannot remove temporary directory %s: %s",
-                                self._current_temp_dir, exc)
+                    logger.warning(
+                        "Cannot remove temporary directory %s: %s",
+                        self._current_temp_dir,
+                        exc,
+                    )
 
             keys_path = Path(KEYS_FILE)
             if keys_path.exists():
@@ -259,7 +265,9 @@ class App(tk.Tk):
         ttk.Label(top_frame, text="API Key:").grid(row=1, column=0, sticky="w")
         self.api_key_entry = ttk.Entry(top_frame, width=50, show="*")
         self.api_key_entry.grid(row=1, column=1, padx=5)
-        ttk.Button(top_frame, text="Save Key", command=self._save_api_key).grid(row=1, column=2)
+        ttk.Button(top_frame, text="Save Key", command=self._save_api_key).grid(
+            row=1, column=2
+        )
 
         mid_frame = ttk.Frame(self, padding=10)
         mid_frame.pack(fill="x", padx=10)
@@ -267,18 +275,28 @@ class App(tk.Tk):
         ttk.Label(mid_frame, text="Enter AppID:").pack(side="left")
         self.appid_entry = ttk.Entry(mid_frame, width=15)
         self.appid_entry.pack(side="left", padx=5)
-        self.fetch_btn = ttk.Button(mid_frame, text="Fetch Manifest", command=self._on_fetch_click)
+        self.fetch_btn = ttk.Button(
+            mid_frame, text="Fetch Manifest", command=self._on_fetch_click
+        )
         self.fetch_btn.pack(side="left")
         ttk.Separator(mid_frame, orient="vertical").pack(side="left", padx=10, fill="y")
-        ttk.Button(mid_frame, text="☑ All", command=self._select_all).pack(side="left", padx=(0, 3))
-        ttk.Button(mid_frame, text="☐ None", command=self._deselect_all).pack(side="left")
+        ttk.Button(mid_frame, text="☑ All", command=self._select_all).pack(
+            side="left", padx=(0, 3)
+        )
+        ttk.Button(mid_frame, text="☐ None", command=self._deselect_all).pack(
+            side="left"
+        )
 
         self.table_frame = ttk.LabelFrame(self, text=" Depots Found ", padding=10)
         self.table_frame.pack(fill="both", expand=True, padx=10, pady=5)
 
         columns = ("check", "id", "status", "key", "manifest")
-        self.tree = ttk.Treeview(self.table_frame, columns=columns, show="headings", selectmode="none")
-        for col, text in zip(columns, ["", "Depot ID", "Status", "Key", "Manifest File"]):
+        self.tree = ttk.Treeview(
+            self.table_frame, columns=columns, show="headings", selectmode="none"
+        )
+        for col, text in zip(
+            columns, ["", "Depot ID", "Status", "Key", "Manifest File"]
+        ):
             self.tree.heading(col, text=text)
         self.tree.column("check", width=30, anchor="center", stretch=False)
         self.tree.column("id", width=100)
@@ -286,7 +304,9 @@ class App(tk.Tk):
 
         self.tree.bind("<ButtonRelease-1>", self._on_tree_click)
 
-        scrollbar = ttk.Scrollbar(self.table_frame, orient="vertical", command=self.tree.yview)
+        scrollbar = ttk.Scrollbar(
+            self.table_frame, orient="vertical", command=self.tree.yview
+        )
         self.tree.configure(yscrollcommand=scrollbar.set)
         self.tree.pack(side="left", fill="both", expand=True)
         scrollbar.pack(side="right", fill="y")
@@ -295,9 +315,7 @@ class App(tk.Tk):
         bottom_frame.pack(fill="both", padx=10, pady=5)
 
         self.console = scrolledtext.ScrolledText(
-            bottom_frame, height=12,
-            bg="#1e1e1e", fg="#4CAF50",
-            font=("Consolas", 10)
+            bottom_frame, height=12, bg="#1e1e1e", fg="#4CAF50", font=("Consolas", 10)
         )
         self.console.pack(fill="both", expand=True, pady=5)
 
@@ -314,14 +332,15 @@ class App(tk.Tk):
         ).pack(anchor="e", pady=(3, 4))
 
         self.download_btn = ttk.Button(
-            btn_frame, text="▶ START DOWNLOAD",
-            command=self._on_download_click, state="disabled"
+            btn_frame,
+            text="▶ START DOWNLOAD",
+            command=self._on_download_click,
+            state="disabled",
         )
         self.download_btn.pack(side="left", fill="x", expand=True, padx=(0, 5))
 
         self.stop_btn = ttk.Button(
-            btn_frame, text="🛑 STOP",
-            command=self._on_stop_click, state="disabled"
+            btn_frame, text="🛑 STOP", command=self._on_stop_click, state="disabled"
         )
         self.stop_btn.pack(side="right", fill="x", expand=True, padx=(5, 0))
 
@@ -399,14 +418,18 @@ class App(tk.Tk):
         appid_str = self.appid_entry.get().strip()
         source_key = self._get_selected_source_key()
         key_field = SOURCES[source_key]["key_field"]
-        key = self.settings.get(key_field, "").strip() or self.api_key_entry.get().strip()
+        key = (
+            self.settings.get(key_field, "").strip() or self.api_key_entry.get().strip()
+        )
 
         if not appid_str.isdigit():
             messagebox.showerror("Error", "Invalid AppID: must be numeric.")
             return
         appid_int = int(appid_str)
         if not (APPID_MIN <= appid_int <= APPID_MAX):
-            messagebox.showerror("Error", f"AppID out of range ({APPID_MIN} \u2013 {APPID_MAX}).")
+            messagebox.showerror(
+                "Error", f"AppID out of range ({APPID_MIN} \u2013 {APPID_MAX})."
+            )
             return
         if len(key) < 10:
             messagebox.showerror("Error", "Missing or invalid API Key.")
@@ -416,7 +439,9 @@ class App(tk.Tk):
         self.run_async(self._fetch_and_scan(appid_str, key, source_key))
 
     async def _fetch_and_scan(self, app_id: str, api_key: str, source: str) -> None:
-        self.log_safe(f"[*] API request for AppID: {app_id} (source: {SOURCES[source]['label']})")
+        self.log_safe(
+            f"[*] API request for AppID: {app_id} (source: {SOURCES[source]['label']})"
+        )
         timeout = aiohttp.ClientTimeout(total=self.settings["request_timeout"])
 
         if source == "ryuu":
@@ -432,10 +457,13 @@ class App(tk.Tk):
         if self._current_temp_dir and self._current_temp_dir.exists():
             try:
                 await asyncio.to_thread(shutil.rmtree, self._current_temp_dir)
-                logger.debug("Old temporary directory removed: %s", self._current_temp_dir)
+                logger.debug(
+                    "Old temporary directory removed: %s", self._current_temp_dir
+                )
             except OSError as exc:
-                logger.warning("Cannot remove old temp_dir %s: %s",
-                               self._current_temp_dir, exc)
+                logger.warning(
+                    "Cannot remove old temp_dir %s: %s", self._current_temp_dir, exc
+                )
 
         temp_dir = Path(tempfile.mkdtemp(prefix="depot_manager_"))
         self._current_temp_dir = temp_dir
@@ -445,18 +473,31 @@ class App(tk.Tk):
             raise RuntimeError("HTTP session is not initialized.")
 
         try:
-            async with self.session.get(url, headers=headers, params=params, timeout=timeout) as r:
+            async with self.session.get(
+                url, headers=headers, params=params, timeout=timeout
+            ) as r:
                 if r.status in (401, 403):
-                    self.after(0, lambda: messagebox.showerror("Auth Error", "API Key rejected by the server."))
-                    logger.warning("API Key rejected (HTTP %s) for AppID %s.", r.status, app_id)
+                    self.after(
+                        0,
+                        lambda: messagebox.showerror(
+                            "Auth Error", "API Key rejected by the server."
+                        ),
+                    )
+                    logger.warning(
+                        "API Key rejected (HTTP %s) for AppID %s.", r.status, app_id
+                    )
                     return
                 try:
                     r.raise_for_status()
                 except aiohttp.ClientResponseError as exc:
                     logger.error("HTTP error %s: %s", exc.status, exc.message)
-                    self.after(0, lambda exc=exc: messagebox.showerror(
-                        "HTTP Error", f"Server responded with {exc.status}: {exc.message}"
-                    ))
+                    self.after(
+                        0,
+                        lambda exc=exc: messagebox.showerror(
+                            "HTTP Error",
+                            f"Server responded with {exc.status}: {exc.message}",
+                        ),
+                    )
                     return
 
                 data = await r.read()
@@ -471,16 +512,31 @@ class App(tk.Tk):
 
         except aiohttp.ClientConnectionError as exc:
             logger.exception("Connection error during fetch.")
-            self.after(0, lambda exc=exc: messagebox.showerror("Network Error", f"Connection failed:\n{exc}"))
+            self.after(
+                0,
+                lambda exc=exc: messagebox.showerror(
+                    "Network Error", f"Connection failed:\n{exc}"
+                ),
+            )
         except aiohttp.ClientError as exc:
             logger.exception("aiohttp client error.")
             self.after(0, lambda exc=exc: messagebox.showerror("HTTP Error", str(exc)))
         except zipfile.BadZipFile:
             logger.exception("Downloaded file is not a valid ZIP.")
-            self.after(0, lambda: messagebox.showerror("Error", "The downloaded file is not a valid ZIP archive."))
+            self.after(
+                0,
+                lambda: messagebox.showerror(
+                    "Error", "The downloaded file is not a valid ZIP archive."
+                ),
+            )
         except Exception as exc:
             logger.exception("Unexpected error in _fetch_and_scan.")
-            self.after(0, lambda exc=exc: messagebox.showerror("Error", f"Unexpected error:\n{exc}"))
+            self.after(
+                0,
+                lambda exc=exc: messagebox.showerror(
+                    "Error", f"Unexpected error:\n{exc}"
+                ),
+            )
         finally:
             self.after(0, lambda: self.fetch_btn.config(state="normal"))
 
@@ -515,13 +571,17 @@ class App(tk.Tk):
                 with open(lua_file, "r", encoding="utf-8", errors="replace") as f:
                     content = f.read()
                 if "\ufffd" in content:
-                    logger.warning("Lua file with problematic encoding: %s", lua_file.name)
+                    logger.warning(
+                        "Lua file with problematic encoding: %s", lua_file.name
+                    )
 
             except OSError as exc:
                 logger.warning("Cannot read %s: %s", lua_file.name, exc)
                 continue
 
-            matches = _RE_LUA_ADDAPPID.findall(content) or _RE_LUA_TABLE.findall(content)
+            matches = _RE_LUA_ADDAPPID.findall(content) or _RE_LUA_TABLE.findall(
+                content
+            )
 
             for did, key in matches:
                 inv.setdefault(did, {"key": None, "manifest_file": None})["key"] = key
@@ -530,7 +590,9 @@ class App(tk.Tk):
             match = _RE_MANIFEST.match(m.name)
             if match:
                 did = match.group(1)
-                inv.setdefault(did, {"key": None, "manifest_file": None})["manifest_file"] = m
+                inv.setdefault(did, {"key": None, "manifest_file": None})[
+                    "manifest_file"
+                ] = m
 
         return inv
 
@@ -548,9 +610,17 @@ class App(tk.Tk):
 
         for did, info in sorted(self.inventory.items()):
             self.checked_depots[did] = False
-            status = "✅ READY" if info["key"] and info["manifest_file"] else "⚠️ INCOMPLETE"
-            manifest_name = info["manifest_file"].name if info["manifest_file"] else "Missing"
-            self.tree.insert("", tk.END, values=("☐", did, status, info["key"] or "Missing", manifest_name))
+            status = (
+                "✅ READY" if info["key"] and info["manifest_file"] else "⚠️ INCOMPLETE"
+            )
+            manifest_name = (
+                info["manifest_file"].name if info["manifest_file"] else "Missing"
+            )
+            self.tree.insert(
+                "",
+                tk.END,
+                values=("☐", did, status, info["key"] or "Missing", manifest_name),
+            )
 
         self.download_btn.config(state="normal")
 
@@ -559,7 +629,9 @@ class App(tk.Tk):
     # -----------------------------------------------------------------------
     def _on_download_click(self) -> None:
         exe_name = self.settings["exe_name"]
-        exe_path = Path(exe_name) if Path(exe_name).is_absolute() else APP_DIR / exe_name
+        exe_path = (
+            Path(exe_name) if Path(exe_name).is_absolute() else APP_DIR / exe_name
+        )
 
         if not exe_path.exists():
             messagebox.showerror("Exec Error", f"Executable not found: {exe_path}")
@@ -567,7 +639,9 @@ class App(tk.Tk):
 
         selected_ids = [did for did, checked in self.checked_depots.items() if checked]
         if not selected_ids:
-            messagebox.showwarning("Warning", "Select at least one depot using the checkboxes.")
+            messagebox.showwarning(
+                "Warning", "Select at least one depot using the checkboxes."
+            )
             return
 
         app_id = self.appid_entry.get().strip()
@@ -576,7 +650,9 @@ class App(tk.Tk):
         self.stop_btn.config(state="normal")
         self.fetch_btn.config(state="disabled")
 
-        self.download_task = self.run_async(self._process_downloads(selected_ids, exe_path, app_id))
+        self.download_task = self.run_async(
+            self._process_downloads(selected_ids, exe_path, app_id)
+        )
 
     def _on_stop_click(self) -> None:
         if self._inner_task and not self._inner_task.done():
@@ -584,7 +660,9 @@ class App(tk.Tk):
             self.log_safe("⚠️ Stop requested, terminating processes...")
             self.loop.call_soon_threadsafe(self._inner_task.cancel)
 
-    async def _process_downloads(self, selected_ids: list, exe_path: Path, app_id: str) -> None:
+    async def _process_downloads(
+        self, selected_ids: list, exe_path: Path, app_id: str
+    ) -> None:
         self._inner_task = asyncio.current_task()
 
         keys_to_write = {
@@ -606,20 +684,38 @@ class App(tk.Tk):
             results = await asyncio.gather(*tasks, return_exceptions=True)
 
             cancelled = any(isinstance(r, asyncio.CancelledError) for r in results)
-            errors = [r for r in results if isinstance(r, Exception) and not isinstance(r, asyncio.CancelledError)]
+            errors = [
+                r
+                for r in results
+                if isinstance(r, Exception)
+                and not isinstance(r, asyncio.CancelledError)
+            ]
 
             if cancelled:
                 self.log_safe("--- 🛑 OPERATION CANCELLED BY USER ---")
-                self.after(0, lambda: messagebox.showwarning("Cancelled", "Downloads successfully cancelled."))
+                self.after(
+                    0,
+                    lambda: messagebox.showwarning(
+                        "Cancelled", "Downloads successfully cancelled."
+                    ),
+                )
             elif errors:
                 self.log_safe(f"--- ⚠️ COMPLETED WITH {len(errors)} ERRORS ---")
-                self.after(0, lambda: messagebox.showwarning(
-                    "Completed with errors",
-                    f"{len(errors)} depots encountered errors. Check the log for details."
-                ))
+                self.after(
+                    0,
+                    lambda: messagebox.showwarning(
+                        "Completed with errors",
+                        f"{len(errors)} depots encountered errors. Check the log for details.",
+                    ),
+                )
             else:
                 self.log_safe("--- ✅ ALL SELECTED DOWNLOADS COMPLETED ---")
-                self.after(0, lambda: messagebox.showinfo("Completed", "All downloads completed."))
+                self.after(
+                    0,
+                    lambda: messagebox.showinfo(
+                        "Completed", "All downloads completed."
+                    ),
+                )
 
         except asyncio.CancelledError:
             for t in tasks:
@@ -634,7 +730,9 @@ class App(tk.Tk):
             self.after(0, lambda: self.stop_btn.config(state="disabled"))
             self.after(0, lambda: self.fetch_btn.config(state="normal"))
 
-    async def _download_single(self, did: str, exe_path: Path, app_id: str, sem: asyncio.Semaphore) -> None:
+    async def _download_single(
+        self, did: str, exe_path: Path, app_id: str, sem: asyncio.Semaphore
+    ) -> None:
         info = self.inventory[str(did)]
         if not info["manifest_file"]:
             logger.warning("Depot %s: no manifest file, skipping.", did)
@@ -650,7 +748,11 @@ class App(tk.Tk):
 
         match = re.search(r"_(\d+)\.manifest$", manifest_src.name)
         if not match:
-            logger.warning("Depot %s: unparsable manifest name (%s), skipping.", did, manifest_src.name)
+            logger.warning(
+                "Depot %s: unparsable manifest name (%s), skipping.",
+                did,
+                manifest_src.name,
+            )
             return
 
         manifest_id = match.group(1)
@@ -667,12 +769,18 @@ class App(tk.Tk):
             self.log_safe(f"\n>>> Starting download Depot {did}...")
             cmd = [
                 str(exe_path),
-                "-app", app_id,
-                "-depot", str(did),
-                "-manifest", manifest_id,
-                "-manifestfile", local_manifest.name,
-                "-depotkeys", KEYS_FILE,
-                "-max-downloads", "16",
+                "-app",
+                app_id,
+                "-depot",
+                str(did),
+                "-manifest",
+                manifest_id,
+                "-manifestfile",
+                local_manifest.name,
+                "-depotkeys",
+                KEYS_FILE,
+                "-max-downloads",
+                "16",
             ]
             logger.debug("Command: %s", " ".join(cmd))
 
@@ -696,7 +804,9 @@ class App(tk.Tk):
                     self.log_safe(line.decode(errors="replace").strip())
 
                 await process.wait()
-                logger.info("Depot %s: process exited with code %s.", did, process.returncode)
+                logger.info(
+                    "Depot %s: process exited with code %s.", did, process.returncode
+                )
 
             except asyncio.CancelledError:
                 if process and process.returncode is None:
@@ -718,15 +828,18 @@ class App(tk.Tk):
                 self.log_safe(f"❌ OS error in subprocess Depot {did}: {exc}")
             except Exception:
                 logger.exception("Unexpected error in subprocess for Depot %s.", did)
-                self.log_safe(f"❌ Unexpected error Depot {did}. See the log for details.")
+                self.log_safe(
+                    f"❌ Unexpected error Depot {did}. See the log for details."
+                )
             finally:
                 if local_manifest.exists():
                     try:
                         local_manifest.unlink()
                         logger.debug("Local manifest removed: %s", local_manifest)
                     except OSError as exc:
-                        logger.warning("Cannot remove local manifest %s: %s",
-                                       local_manifest, exc)
+                        logger.warning(
+                            "Cannot remove local manifest %s: %s", local_manifest, exc
+                        )
 
     @staticmethod
     def _write_keys_file(keys_dict: dict) -> None:

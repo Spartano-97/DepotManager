@@ -1,5 +1,6 @@
-import sys
 import logging
+import sys
+
 from DepotManager.config import LOG_FILE
 from DepotManager.gui import App
 

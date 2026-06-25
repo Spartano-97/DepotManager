@@ -1,8 +1,8 @@
-import os
-import sys
 import json
-import re
 import logging
+import os
+import re
+import sys
 from pathlib import Path
 
 # ---------------------------------------------------------------------------
@@ -60,9 +60,10 @@ APPID_MAX = 2_000_000_000
 # Regex patterns for Lua and Manifest files
 _RE_LUA_ADDAPPID = re.compile(r'addappid\((\d+),\s*\d+,\s*"([A-Za-z0-9]+)"\)')
 _RE_LUA_TABLE = re.compile(r'\[(\d+)\]\s*=\s*"([A-Za-z0-9]+)"')
-_RE_MANIFEST = re.compile(r'^(\d+)_(\d+)\.manifest$')
+_RE_MANIFEST = re.compile(r"^(\d+)_(\d+)\.manifest$")
 
 logger = logging.getLogger("DepotManager.Config")
+
 
 # ---------------------------------------------------------------------------
 # SETTINGS FUNCTIONS
@@ -86,12 +87,13 @@ def load_settings() -> dict:
             # Auto-migrate exe_name if it points to the old default relative path
             if loaded.get("exe_name") == "DepotDownloaderMod.exe":
                 loaded["exe_name"] = "../DepotDownloaderMod/DepotDownloaderMod.exe"
-            
+
             settings.update(loaded)
             logger.debug("Settings loaded from %s.", SETTINGS_FILE)
         except (json.JSONDecodeError, OSError) as exc:
             logger.warning("Cannot read settings file: %s. Using defaults.", exc)
     return settings
+
 
 def save_settings(settings: dict) -> None:
     """Saves settings dict to settings.json."""

@@ -5,18 +5,21 @@ import shutil
 import subprocess
 from pathlib import Path
 from typing import Callable, Dict, List, Optional
+
 from .config import APP_DIR, KEYS_FILE
 
 logger = logging.getLogger("DepotManager.Downloader")
 
+
 class DownloadManager:
     """Manages downloading selected Steam depots using DepotDownloaderMod.exe."""
+
     def __init__(
         self,
         settings: dict,
         inventory: dict,
         current_temp_dir: Optional[Path],
-        log_callback: Callable[[str], None]
+        log_callback: Callable[[str], None],
     ) -> None:
         self.settings = settings
         self.inventory = inventory
@@ -34,7 +37,9 @@ class DownloadManager:
             logger.error("Cannot write keys file: %s", exc)
             raise exc
 
-    async def run_downloads(self, selected_ids: List[str], exe_path: Path, app_id: str) -> None:
+    async def run_downloads(
+        self, selected_ids: List[str], exe_path: Path, app_id: str
+    ) -> None:
         """Orchestrates downloads of all selected depots with controlled concurrency."""
         # Pre-populate keys
         keys_to_write = {
@@ -57,14 +62,21 @@ class DownloadManager:
                 results = await asyncio.gather(*tasks, return_exceptions=True)
 
                 cancelled = any(isinstance(r, asyncio.CancelledError) for r in results)
-                errors = [r for r in results if isinstance(r, Exception) and not isinstance(r, asyncio.CancelledError)]
+                errors = [
+                    r
+                    for r in results
+                    if isinstance(r, Exception)
+                    and not isinstance(r, asyncio.CancelledError)
+                ]
 
                 if cancelled:
                     self.log_callback("--- 🛑 OPERATION CANCELLED BY USER ---")
                     raise asyncio.CancelledError()
                 elif errors:
                     self.log_callback(f"--- ⚠️ COMPLETED WITH {len(errors)} ERRORS ---")
-                    raise RuntimeError(f"{len(errors)} depots encountered errors during download.")
+                    raise RuntimeError(
+                        f"{len(errors)} depots encountered errors during download."
+                    )
                 else:
                     self.log_callback("--- ✅ ALL SELECTED DOWNLOADS COMPLETED ---")
 
@@ -79,11 +91,17 @@ class DownloadManager:
             if keys_path.exists():
                 try:
                     await asyncio.to_thread(keys_path.unlink)
-                    logger.debug("Keys file removed immediately after download: %s", KEYS_FILE)
+                    logger.debug(
+                        "Keys file removed immediately after download: %s", KEYS_FILE
+                    )
                 except OSError as exc:
-                    logger.warning("Cannot remove keys file %s immediately: %s", KEYS_FILE, exc)
+                    logger.warning(
+                        "Cannot remove keys file %s immediately: %s", KEYS_FILE, exc
+                    )
 
-    async def _download_single(self, did: str, exe_path: Path, app_id: str, sem: asyncio.Semaphore) -> None:
+    async def _download_single(
+        self, did: str, exe_path: Path, app_id: str, sem: asyncio.Semaphore
+    ) -> None:
         """Downloads a single depot using DepotDownloaderMod.exe in a subprocess."""
         info = self.inventory.get(str(did))
         if not info or not info["manifest_file"]:
@@ -101,7 +119,11 @@ class DownloadManager:
 
         match = re.search(r"_(\d+)\.manifest$", manifest_src.name)
         if not match:
-            logger.warning("Depot %s: unparsable manifest name (%s), skipping.", did, manifest_src.name)
+            logger.warning(
+                "Depot %s: unparsable manifest name (%s), skipping.",
+                did,
+                manifest_src.name,
+            )
             self.log_callback(f"⚠️ Depot {did}: Unparsable manifest name, skipping.")
             return
 
@@ -120,12 +142,18 @@ class DownloadManager:
             self.log_callback(f"\n>>> Starting download Depot {did}...")
             cmd = [
                 str(exe_path),
-                "-app", app_id,
-                "-depot", str(did),
-                "-manifest", manifest_id,
-                "-manifestfile", local_manifest.name,
-                "-depotkeys", KEYS_FILE,
-                "-max-downloads", "16",
+                "-app",
+                app_id,
+                "-depot",
+                str(did),
+                "-manifest",
+                manifest_id,
+                "-manifestfile",
+                local_manifest.name,
+                "-depotkeys",
+                KEYS_FILE,
+                "-max-downloads",
+                "16",
             ]
             logger.debug("Command: %s", " ".join(cmd))
 
@@ -150,9 +178,13 @@ class DownloadManager:
                     self.log_callback(line.decode(errors="replace").strip())
 
                 await process.wait()
-                logger.info("Depot %s: process exited with code %s.", did, process.returncode)
+                logger.info(
+                    "Depot %s: process exited with code %s.", did, process.returncode
+                )
                 if process.returncode != 0:
-                    raise RuntimeError(f"Process exited with non-zero code {process.returncode}")
+                    raise RuntimeError(
+                        f"Process exited with non-zero code {process.returncode}"
+                    )
 
             except asyncio.CancelledError:
                 if process and process.returncode is None:
@@ -176,7 +208,9 @@ class DownloadManager:
                 raise
             except Exception as exc:
                 logger.exception("Unexpected error in subprocess for Depot %s.", did)
-                self.log_callback(f"❌ Unexpected error Depot {did}. See the log for details.")
+                self.log_callback(
+                    f"❌ Unexpected error Depot {did}. See the log for details."
+                )
                 raise
             finally:
                 if local_manifest.exists():
@@ -184,4 +218,6 @@ class DownloadManager:
                         local_manifest.unlink()
                         logger.debug("Local manifest removed: %s", local_manifest)
                     except OSError as exc:
-                        logger.warning("Cannot remove local manifest %s: %s", local_manifest, exc)
+                        logger.warning(
+                            "Cannot remove local manifest %s: %s", local_manifest, exc
+                        )

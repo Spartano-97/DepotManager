@@ -1,9 +1,11 @@
 import logging
 import zipfile
 from pathlib import Path
+
 from .config import _RE_LUA_ADDAPPID, _RE_LUA_TABLE, _RE_MANIFEST
 
 logger = logging.getLogger("DepotManager.Parser")
+
 
 def safe_extract(zip_path: Path, extract_to: Path) -> None:
     """Extracts a ZIP file safely while preventing Zip Slip vulnerabilities."""
@@ -18,6 +20,7 @@ def safe_extract(zip_path: Path, extract_to: Path) -> None:
                     f"Zip Slip detected: '{member.filename}' attempts to escape the extraction directory."
                 )
         zf.extractall(extract_to)
+
 
 def scan_directory(temp_dir: Path) -> dict:
     """Scans the temp directory for Lua scripts and Steam manifests to build the depot inventory."""
@@ -43,6 +46,8 @@ def scan_directory(temp_dir: Path) -> dict:
         match = _RE_MANIFEST.match(m.name)
         if match:
             did = match.group(1)
-            inv.setdefault(did, {"key": None, "manifest_file": None})["manifest_file"] = m
+            inv.setdefault(did, {"key": None, "manifest_file": None})[
+                "manifest_file"
+            ] = m
 
     return inv

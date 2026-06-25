@@ -1,5 +1,6 @@
-import sys
 import logging
+import sys
+
 from .config import LOG_FILE
 from .gui import App
 
