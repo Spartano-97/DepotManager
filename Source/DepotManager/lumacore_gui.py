@@ -772,7 +772,6 @@ class AddGameDialog(tk.Toplevel):
     DOWNLOAD_MODES = (
         ("steam_native", "Steam native (Steam downloads files)"),
         ("depotdownloader", "DepotDownloaderMod (this app downloads)"),
-        ("inject_only", "Inject only (no ACF, no download)"),
     )
 
     def __init__(
@@ -875,23 +874,50 @@ class AddGameDialog(tk.Toplevel):
         if self.update_mode:
             self.library_combo.config(state="disabled")
 
-        ttk.Label(bottom, text="Mode:").pack(side="left")
-        self.mode_var = tk.StringVar(value=self.DOWNLOAD_MODES[0][1])
-        self.mode_combo = ttk.Combobox(
-            bottom,
-            textvariable=self.mode_var,
-            values=[m[1] for m in self.DOWNLOAD_MODES],
-            state="readonly",
-            width=42,
-        )
-        self.mode_combo.pack(side="left", padx=5)
-        self.mode_combo.current(0)
+        # Mode selection: two radio buttons sharing a StringVar that holds
+        # the internal mode key ("steam_native"|"depotdownloader").
+        mode_row = ttk.Frame(bottom)
+        mode_row.pack(fill="x", pady=(0, 4))
+        ttk.Label(mode_row, text="Mode:").pack(side="left")
+        self.mode_var = tk.StringVar(value=self.DOWNLOAD_MODES[0][0])
+        for mode_key, mode_label in self.DOWNLOAD_MODES:
+            ttk.Radiobutton(
+                mode_row,
+                text=mode_label,
+                value=mode_key,
+                variable=self.mode_var,
+            ).pack(side="left", padx=5)
+
+        # Library combobox is only relevant for depotdownloader mode (where we
+        # write the ACF + download files into a specific library). In
+        # steam_native mode Steam handles the install location natively, so
+        # the library selection is irrelevant and gets disabled. In update
+        # mode the library is always locked regardless of mode.
+        self.mode_var.trace_add("write", self._on_mode_change)
+        # Apply the initial state (default mode is steam_native -> disabled).
+        self._on_mode_change()
 
         self.confirm_btn = ttk.Button(
             bottom, text="Confirm", command=self._on_confirm, state="disabled"
         )
         self.confirm_btn.pack(side="right", padx=(5, 0))
         ttk.Button(bottom, text="Cancel", command=self.destroy).pack(side="right")
+
+    def _on_mode_change(self, *args) -> None:
+        """Toggle the library combobox based on the selected download mode.
+
+        steam_native       -> library disabled (Steam chooses install location)
+        depotdownloader    -> library enabled (user chooses where files land)
+
+        In update mode the library is always disabled (the game stays where it
+        already is), so this callback is a no-op there.
+        """
+        if self.update_mode:
+            return
+        if self.mode_var.get() == "steam_native":
+            self.library_combo.config(state="disabled")
+        else:
+            self.library_combo.config(state="readonly")
 
     # ------------------------------------------------------------------
     def _selected_source_key(self) -> str:
@@ -1004,7 +1030,7 @@ class AddGameDialog(tk.Toplevel):
 
         if self.update_mode:
             # Lock to the current ACF's library. If no ACF exists (e.g. the
-            # game was previously injected with inject_only mode), fall back
+            # game was previously injected without an ACF), fall back
             # to pick_library_default but keep the combobox disabled so the
             # update lands in a deterministic place.
             acf = find_acf_for_app(libraries, appid)
@@ -1027,7 +1053,7 @@ class AddGameDialog(tk.Toplevel):
         if self.temp_dir is None or not self.inventory:
             messagebox.showerror("Error", "Fetch a manifest first.")
             return
-        mode = self.DOWNLOAD_MODES[self.mode_combo.current()][0]
+        mode = self.mode_var.get()
         # Resolve the library override from the combobox (None if unset/invalid).
         library_override = self._library_map.get(self.library_var.get())
         self.confirm_btn.config(state="disabled")

@@ -70,7 +70,7 @@ DEPOTCACHE_SUBDIR = "depotcache"
 DEPOTCACHE_CONFIG_SUBDIR = "config/depotcache"
 SAVED_LUA_DIR = APP_DIR / "saved_lua"
 
-DownloadMode = str  # "steam_native" | "depotdownloader" | "inject_only"
+DownloadMode = str  # "steam_native" | "depotdownloader"
 
 
 # ---------------------------------------------------------------------------
@@ -301,6 +301,20 @@ async def add_game(
 
     _progress(65, "Resolving game name...")
     name = await get_app_name(session, appid)
+
+    if download_mode == "steam_native":
+        # Steam handles the install location natively: when the user clicks
+        # Install in the Steam library, Steam shows its own library chooser
+        # and creates the ACF itself. We only inject lua + keys + manifests.
+        _progress(100, f"Game {appid} prepared. Restart Steam to install.")
+        return True, (
+            f"Game {appid} ({name}) injected. Restart Steam: it will appear "
+            "as owned in your library. Click Install to choose library and download."
+        )
+
+    # depotdownloader mode: we download the files ourselves, so we need to
+    # know the target library + installdir and write the ACF so Steam picks
+    # up the files as "installed".
     installdir = sanitize_installdir(name)
 
     _progress(75, "Choosing Steam library...")
@@ -329,16 +343,6 @@ async def add_game(
     depots = _depots_for_acf(inventory)
     acf_path = library / f"appmanifest_{appid}.acf"
     write_acf(acf_path, appid, name, installdir, depots)
-
-    if download_mode == "steam_native":
-        _progress(100, f"Game {appid} prepared. Restart Steam to download.")
-        return True, (
-            f"Game {appid} ({name}) injected. Restart Steam: it will appear "
-            "in your library ready to install/download."
-        )
-    if download_mode == "inject_only":
-        _progress(100, f"Game {appid} injected (no ACF download).")
-        return True, f"Game {appid} ({name}) injected. ACF written."
 
     # depotdownloader mode: the caller (GUI) will invoke DownloadManager with
     # output_dir = <library parent>/common/<installdir> and then patch the ACF
