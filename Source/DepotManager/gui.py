@@ -247,20 +247,20 @@ class App(tk.Tk):
 
         # Download action buttons — placed right below the Depots Found table,
         # mirroring the LumaCore Manager tab's Add/Update/Remove button row.
+        # Both buttons stay always enabled; guards in the handlers show
+        # contextual warnings instead of greying them out.
         download_btns = ttk.Frame(tab_downloader)
         download_btns.pack(fill="x", padx=10, pady=(2, 4))
         self.download_btn = ttk.Button(
             download_btns,
             text="Start Download",
             command=self._on_download_click,
-            state="disabled",
         )
         self.download_btn.pack(side="left", padx=2)
         self.stop_btn = ttk.Button(
             download_btns,
             text="Stop Download",
             command=self._on_stop_click,
-            state="disabled",
         )
         self.stop_btn.pack(side="left", padx=2)
 
@@ -456,8 +456,6 @@ class App(tk.Tk):
                 values=("☐", did, status, info["key"] or "Missing", manifest_name),
             )
 
-        self.download_btn.config(state="normal")
-
     def _on_load_click(self) -> None:
         from tkinter import filedialog
 
@@ -601,12 +599,18 @@ class App(tk.Tk):
                 values=("☐", did, status, info["key"] or "Missing", manifest_name),
             )
 
-        self.download_btn.config(state="normal")
-
     # -----------------------------------------------------------------------
     # DOWNLOAD
     # -----------------------------------------------------------------------
     def _on_download_click(self) -> None:
+        # Guard: refuse to start while another download is running.
+        if self._inner_task is not None and not self._inner_task.done():
+            messagebox.showwarning(
+                "Download in progress",
+                "A download is already running. Stop it first before starting a new one.",
+            )
+            return
+
         exe_name = self.settings["exe_name"]
         exe_path = (
             Path(exe_name) if Path(exe_name).is_absolute() else APP_DIR / exe_name
@@ -635,8 +639,8 @@ class App(tk.Tk):
             )
             return
 
-        self.download_btn.config(state="disabled")
-        self.stop_btn.config(state="normal")
+        # Start/Stop stay enabled; only fetch/load are disabled during download
+        # to prevent the inventory/temp_dir from being overwritten mid-run.
         self.fetch_btn.config(state="disabled")
         self.load_btn.config(state="disabled")
 
@@ -645,10 +649,14 @@ class App(tk.Tk):
         )
 
     def _on_stop_click(self) -> None:
-        if self._inner_task and not self._inner_task.done():
-            self.stop_btn.config(state="disabled")
+        if self._inner_task is not None and not self._inner_task.done():
             self.log_safe("⚠️ Stop requested, terminating processes...")
             self.loop.call_soon_threadsafe(self._inner_task.cancel)
+        else:
+            messagebox.showinfo(
+                "No download in progress",
+                "There is no active download to stop.",
+            )
 
     async def _process_downloads(
         self, selected_ids: list, exe_path: Path, app_id: str
@@ -682,7 +690,7 @@ class App(tk.Tk):
         finally:
             self._inner_task = None
             self.download_task = None
-            self.after(0, lambda: self.download_btn.config(state="normal"))
-            self.after(0, lambda: self.stop_btn.config(state="disabled"))
+            # Start/Stop are always enabled; only fetch/load are re-enabled
+            # now that the inventory/temp_dir can be safely replaced.
             self.after(0, lambda: self.fetch_btn.config(state="normal"))
             self.after(0, lambda: self.load_btn.config(state="normal"))
