@@ -3,12 +3,17 @@ import logging
 import re
 import shutil
 import subprocess
+import sys
 from pathlib import Path
 from typing import Callable, Dict, List, Optional
 
 from .config import APP_DIR, KEYS_FILE
 
 logger = logging.getLogger("DepotManager.Downloader")
+
+# Windows-only flag to prevent DepotDownloaderMod.exe from spawning a visible
+# console window. On non-Windows hosts the value is 0 (no-op).
+_NO_WINDOW = subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
 
 
 class DownloadManager:
@@ -179,6 +184,7 @@ class DownloadManager:
                     stdout=subprocess.PIPE,
                     stderr=subprocess.STDOUT,
                     cwd=str(APP_DIR),
+                    creationflags=_NO_WINDOW,
                 )
 
                 if process.stdout is None:

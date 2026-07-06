@@ -16,6 +16,10 @@ from typing import Tuple
 
 logger = logging.getLogger("DepotManager.SteamProcess")
 
+# Windows-only flag to prevent child processes from spawning a visible console
+# window. On non-Windows hosts the value is 0 (no-op, default creation flags).
+_NO_WINDOW = subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
+
 # Processes that may hold a handle on the DLLs we are about to replace.
 # steamwebhelper.exe spawns many children; killing the parent is enough.
 _STEAM_PROCESSES = ("steam.exe", "steamservice.exe", "steamwebhelper.exe")
@@ -34,6 +38,7 @@ def _run(cmd: Tuple[str, ...], timeout: int = 10) -> int:
             stderr=subprocess.DEVNULL,
             timeout=timeout,
             check=False,
+            creationflags=_NO_WINDOW,
         )
         return proc.returncode
     except (FileNotFoundError, subprocess.TimeoutExpired, OSError) as exc:
@@ -61,6 +66,7 @@ def is_steam_running() -> bool:
                 text=True,
                 timeout=5,
                 check=False,
+                creationflags=_NO_WINDOW,
             )
             if image.lower() in result.stdout.lower():
                 return True
