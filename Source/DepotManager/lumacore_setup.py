@@ -9,16 +9,6 @@ LumaCore ships as four DLLs placed in the Steam install directory:
 
 Binaries are NOT vendored in this repository: they are downloaded at install
 time from the official release page on GitHub (``KoriaPolis/LumaCore``).
-
-Improvements over the upstream SFF implementation:
-
-1. ``dwmapi.dll`` and ``xinput1_4.dll`` are backed up to
-   ``<steam>/lumacore_backup/`` before being overwritten, and restored on
-   uninstall. SFF deletes them unconditionally.
-2. Version comparison is numeric (``int(V18[1:]) > int(V17[1:])``) rather than
-   a fragile string inequality.
-3. Optional ``complete`` uninstall also purges ``stplug-in/``, ``depotcache/``
-   orphan manifests and per-game ACFs (delegated to ``lumacore_games``).
 """
 
 from __future__ import annotations
@@ -107,9 +97,8 @@ def get_installed_version(settings: dict, steam_path: Optional[Path]) -> str:
         return ""
     if steam_path is None or not steam_path.is_dir():
         return ""
-    # Consider installed only if every required DLL is in place. Partial state
-    # means a previous install failed or was interrupted; treat as "not
-    # installed" so the UI offers a fresh install.
+    # Consider installed only if every required DLL is in place; partial
+    # state means a previous install was interrupted.
     if not all((steam_path / dll).is_file() for dll in LC_DLLS):
         return ""
     return cached
@@ -275,9 +264,8 @@ def _reset_lumacore_files(steam_path: Path) -> Tuple[int, list]:
 def _backup_proxy_dlls(steam_path: Path) -> int:
     """Copy dwmapi.dll / xinput1_4.dll to <steam>/lumacore_backup/ if present.
 
-    We only back up DLLs that may have a legitimate pre-existing source (i.e.
-    a different proxy tool the user had installed). LumaCore's own DLLs and
-    lcoverlay.dll have no "original" to preserve.
+    Only proxy DLLs that may have a legitimate pre-existing source are
+    backed up; LumaCore's own DLLs have no "original" to preserve.
     """
     backup_dir = steam_path / LC_BACKUP_DIR
     backup_dir.mkdir(parents=True, exist_ok=True)
@@ -366,7 +354,7 @@ async def _prewarm_patterns(steam_path: Path, session: aiohttp.ClientSession) ->
     pattern_root = steam_path / LUMACORE_PATTERN_DIR / "pattern"
     pattern_root.mkdir(parents=True, exist_ok=True)
 
-    # (steam_dll_basename, subdir_in_repo). subdir "" is the default bucket.
+    # (steam_dll_basename, subdir_in_repo)
     candidates = (
         ("steamclient64.dll", ""),
         ("steamui.dll", ""),
@@ -415,16 +403,9 @@ async def install_lumacore(
 ) -> Tuple[bool, str]:
     """Download and install LumaCore into the given Steam directory.
 
-    Steps:
-      1. Validate steam_path.
-      2. Kill Steam (so DLLs are not locked).
-      3. Backup any pre-existing dwmapi.dll / xinput1_4.dll.
-      4. Remove previous LumaCore files.
-      5. Download the release ZIP from GitHub.
-      6. Extract the 4 DLLs into steam_path.
-      7. Verify all 4 DLLs are present.
-      8. Best-effort prewarm of pattern TOMLs.
-      9. Persist the installed version into settings.
+    Kills Steam, backs up existing proxy DLLs, downloads the latest release
+    ZIP from GitHub, extracts the 4 DLLs into ``steam_path``, prewarms the
+    pattern cache, and persists the installed version.
 
     Returns (True, message) on success, (False, reason) on failure.
     """
@@ -534,20 +515,16 @@ def uninstall_lumacore(
             except Exception:  # pragma: no cover
                 pass
 
-    # Guard: detect whether LumaCore is actually installed before killing
-    # Steam. Killing Steam when there is nothing to remove is disruptive and
-    # misleading (the user is told to "restart Steam" for a no-op).
+    # Guard: skip kill_steam when there is nothing to remove.
     installed = bool(get_installed_version(settings, steam_path))
 
     if not installed and not complete:
-        # Nothing to remove and no orphan cleanup requested.
         logger.info("uninstall_lumacore: nothing to remove (LumaCore not installed).")
         return True, "LumaCore is not installed. Nothing to uninstall."
 
     if not installed and complete:
-        # LumaCore absent but the user wants orphan game cleanup. stplug-in
-        # lua and depotcache manifests are NOT locked by a running Steam, so
-        # we skip kill_steam and go straight to remove_all_games.
+        # Orphan cleanup only: stplug-in/depotcache files are not locked by
+        # a running Steam, so skip kill_steam.
         logger.info(
             "uninstall_lumacore: LumaCore not installed, running orphan cleanup only."
         )

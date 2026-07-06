@@ -60,14 +60,8 @@ def scan_directory(temp_dir: Path) -> dict:
 def get_lua_file(temp_dir: Path, appid: str) -> Optional[Path]:
     """Locate the lua for ``appid`` inside an extracted API archive.
 
-    Preference order:
-      1. ``<appid>.lua`` (exact stem match).
-      2. First ``*.lua`` whose stem is all digits (API sometimes names the
-         file after the main app id even when the archive carries a different
-         AppID in its own filename).
-      3. First ``*.lua`` in the directory.
-
-    Returns None when the directory contains no lua at all.
+    Preference: ``<appid>.lua`` exact match, then first ``*.lua`` with a
+    digit-only stem, then first ``*.lua`` in the directory. None if empty.
     """
     direct = temp_dir / f"{appid}.lua"
     if direct.is_file():
@@ -82,8 +76,8 @@ def get_lua_file(temp_dir: Path, appid: str) -> Optional[Path]:
 def manifest_gid_from_name(name: str) -> Optional[str]:
     """Extract the manifest GID from a ``<depot>_<gid>.manifest`` filename.
 
-    Returns the GID as a string, or None if the name doesn't match the
-    expected pattern. Accepts either a full path or a bare filename.
+    Returns the GID string, or None if the name doesn't match. Accepts a
+    full path or a bare filename.
     """
     from pathlib import Path as _Path
 

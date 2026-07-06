@@ -56,9 +56,8 @@ def is_steam_running() -> bool:
             ("tasklist", "/FI", f"IMAGENAME eq {image}", "/NH"),
             timeout=5,
         )
-        # tasklist prints "INFO: No tasks are running..." on no match and still
-        # exits 0, so we cannot rely on the return code alone. Re-run with
-        # output capture and check for the image name string instead.
+        # tasklist exits 0 even on no match, so check the output string
+        # instead of relying on the return code.
         try:
             result = subprocess.run(
                 ("tasklist", "/FI", f"IMAGENAME eq {image}", "/NH", "/FO", "CSV"),

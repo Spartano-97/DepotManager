@@ -204,7 +204,7 @@ def _install_manifests(steam_path: Path, inventory: Dict) -> int:
 
 
 def _depot_keys_from_inventory(inventory: Dict) -> Dict[str, str]:
-    """Build {depot_id: key} for every depot with a non-empty key, excluding
+    """Build {depot_id: key} for depots with a non-empty key, excluding
     the global ownership id '1'."""
     out: Dict[str, str] = {}
     for did, info in inventory.items():
@@ -266,9 +266,8 @@ async def add_game(
     if not steam_path.is_dir():
         return False, f"Steam path not found: {steam_path}"
 
-    # Defense in depth: refuse to inject without LumaCore installed, otherwise
-    # the user would get lua/keys/manifests/ACF written for nothing (Steam
-    # vanilla ignores stplug-in and non-owned DecryptionKey entries).
+    # Guard: refuse without LumaCore installed (Steam vanilla ignores
+    # stplug-in and non-owned DecryptionKey entries).
     from .lumacore_setup import get_installed_version as _lc_installed
 
     if not _lc_installed(settings, steam_path):
@@ -303,18 +302,17 @@ async def add_game(
     name = await get_app_name(session, appid)
 
     if download_mode == "steam_native":
-        # Steam handles the install location natively: when the user clicks
-        # Install in the Steam library, Steam shows its own library chooser
-        # and creates the ACF itself. We only inject lua + keys + manifests.
+        # Steam handles install location natively via its own library chooser
+        # when the user clicks Install. We only inject lua + keys + manifests.
         _progress(100, f"Game {appid} prepared. Restart Steam to install.")
         return True, (
             f"Game {appid} ({name}) injected. Restart Steam: it will appear "
             "as owned in your library. Click Install to choose library and download."
         )
 
-    # depotdownloader mode: we download the files ourselves, so we need to
-    # know the target library + installdir and write the ACF so Steam picks
-    # up the files as "installed".
+    # depotdownloader mode: we download the files ourselves, so we need the
+    # target library + installdir and write the ACF so Steam sees the files
+    # as "installed".
     installdir = sanitize_installdir(name)
 
     _progress(75, "Choosing Steam library...")
@@ -444,9 +442,8 @@ def remove_game(steam_path: Path, appid: str, scope: str = "full") -> Tuple[bool
                     except OSError as exc:
                         logger.warning("Cannot remove %s: %s", m, exc)
 
-        # Remove ACF from every library that has one. A backup copy is
-        # saved by remove_acf as <name>.depotmanager_bak so the user can
-        # recover it via "Restore ACF Backups" if needed.
+        # Remove ACF from every library that has one. remove_acf saves a
+        # .depotmanager_bak backup before deleting.
         for lib in libraries:
             acf = lib / f"appmanifest_{appid}.acf"
             if acf.is_file():

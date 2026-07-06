@@ -1,9 +1,8 @@
 """Tkinter UI for the LumaCore Manager tab + Add Game dialog.
 
-This module is imported only by ``gui.py`` and is intentionally Tkinter-only.
-It reuses the existing async bridge (``App.run_async`` / ``App.session``) and
-the existing API fetch pipeline (``api_client.APIClient`` + ``parser``) so the
-LumaCore tab feels native to the rest of the application.
+Tkinter-only module imported by ``gui.py``. Reuses the existing async bridge
+(``App.run_async`` / ``App.session``) and API fetch pipeline
+(``api_client.APIClient`` + ``parser``) so the LumaCore tab feels native.
 """
 
 from __future__ import annotations
@@ -312,8 +311,8 @@ class LumaCoreTab(ttk.Frame):
         complete = self.complete_uninstall_var.get()
         installed = self._is_lumacore_installed()
 
-        # Pre-check: enumerate managed games so we can show the user exactly
-        # what is about to be removed and short-circuit the no-op cases.
+        # Pre-check: enumerate managed games to show what will be removed
+        # and short-circuit the no-op cases.
         try:
             games = lumacore_games.list_installed_games(steam)
         except Exception:
@@ -338,7 +337,6 @@ class LumaCoreTab(ttk.Frame):
             ):
                 return
         elif installed and games_count > 0:
-            # Build a readable list of games that will be removed.
             listing = "\n".join(f"  - {g['appid']}: {g['name']}" for g in games[:20])
             if games_count > 20:
                 listing += f"\n  ... and {games_count - 20} more"
@@ -453,7 +451,6 @@ class LumaCoreTab(ttk.Frame):
         if appid is None:
             messagebox.showinfo("Update game", "Select a game in the list first.")
             return
-        # Update reuses the same dialog with the AppID pre-filled.
         steam = self._current_steam_path()
         if steam is None:
             return
@@ -858,8 +855,8 @@ class AddGameDialog(tk.Toplevel):
         bottom = ttk.Frame(self, padding=6)
         bottom.pack(fill="x", padx=6, pady=(2, 6))
 
-        # Library row: chosen by the user (Add) or fixed to the current one
-        # (Update, read-only). Populated after fetch in _populate_depots.
+        # Library row: chosen by user (Add) or fixed (Update, read-only).
+        # Populated after fetch in _populate_depots.
         lib_row = ttk.Frame(bottom)
         lib_row.pack(fill="x", pady=(0, 4))
         ttk.Label(lib_row, text="Library:").pack(side="left")
@@ -888,11 +885,9 @@ class AddGameDialog(tk.Toplevel):
                 variable=self.mode_var,
             ).pack(side="left", padx=5)
 
-        # Library combobox is only relevant for depotdownloader mode (where we
-        # write the ACF + download files into a specific library). In
-        # steam_native mode Steam handles the install location natively, so
-        # the library selection is irrelevant and gets disabled. In update
-        # mode the library is always locked regardless of mode.
+        # Library combobox is only relevant for depotdownloader mode. In
+        # steam_native mode Steam handles install location natively, so the
+        # library selection is disabled. In update mode it is always locked.
         self.mode_var.trace_add("write", self._on_mode_change)
         # Apply the initial state (default mode is steam_native -> disabled).
         self._on_mode_change()

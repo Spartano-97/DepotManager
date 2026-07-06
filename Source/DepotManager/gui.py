@@ -159,10 +159,8 @@ class App(tk.Tk):
     def _setup_ui(self) -> None:
         ttk.Style()
 
-        # Notebook: DepotDownloader tab (existing UI) + LumaCore Manager tab.
-        # The shared console stays outside the notebook so logs are visible
-        # from both tabs; the Start/Stop buttons live in the Actions section
-        # of the DepotDownloader tab.
+        # Notebook with 2 tabs. The shared console stays outside so logs
+        # are visible from both; Start/Stop live in the Actions section.
         self.notebook = ttk.Notebook(self)
         self.notebook.pack(fill="both", expand=True, padx=10, pady=5)
         tab_downloader = ttk.Frame(self.notebook)
@@ -245,10 +243,8 @@ class App(tk.Tk):
         self.tree.pack(side="left", fill="both", expand=True)
         scrollbar.pack(side="right", fill="y")
 
-        # Download action buttons — placed right below the Depots Found table,
-        # mirroring the LumaCore Manager tab's Add/Update/Remove button row.
-        # Both buttons stay always enabled; guards in the handlers show
-        # contextual warnings instead of greying them out.
+        # Download action buttons — below the Depots Found table. Both stay
+        # always enabled; guards in the handlers show contextual warnings.
         download_btns = ttk.Frame(tab_downloader)
         download_btns.pack(fill="x", padx=10, pady=(2, 4))
         self.download_btn = ttk.Button(

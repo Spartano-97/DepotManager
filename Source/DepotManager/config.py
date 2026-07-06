@@ -62,8 +62,7 @@ SOURCES: dict = {
 APPID_MIN = 1
 APPID_MAX = 2_000_000_000
 
-# AppID "1" is Steam's global/fake ownership id; must be filtered out when
-# writing depot keys / ACF / depotcache files.
+# Steam's fake ownership id; filtered out from keys/ACF/depotcache.
 APPID_OWNERSHIP_FAKE = "1"
 
 # Regex patterns for Lua and Manifest files
@@ -76,8 +75,7 @@ _RE_LUA_ADDAPPID_OWNERSHIP = re.compile(r"addappid\(\s*(\d+)\s*\)")
 # ---------------------------------------------------------------------------
 # LUMACORE CONSTANTS
 # ---------------------------------------------------------------------------
-# LumaCore binaries are NOT shipped in this repo nor in Midrags/SFF: they are
-# downloaded at install time from the official release page below.
+# LumaCore binaries are downloaded at install time from GitHub releases.
 LUMACORE_REPO = "KoriaPolis/LumaCore"
 LUMACORE_RELEASE_API = f"https://api.github.com/repos/{LUMACORE_REPO}/releases/latest"
 
@@ -85,9 +83,8 @@ LUMACORE_RELEASE_API = f"https://api.github.com/repos/{LUMACORE_REPO}/releases/l
 # are proxy DLLs that load LumaCore.dll at Steam startup.
 LC_DLLS = ("dwmapi.dll", "xinput1_4.dll", "LumaCore.dll", "LumaCorePayload.dll")
 
-# Files removed on (re)install / uninstall. Tuple of (subdir, name) relative to
-# the Steam root. lcoverlay.dll is generated at runtime by LumaCore from
-# steamclient64.dll; we still wipe it so a fresh copy is produced.
+# Files removed on (re)install / uninstall. Tuple of (subdir, name) relative
+# to the Steam root.
 LC_RESET_FILES = (
     ("", "dwmapi.dll"),
     ("", "xinput1_4.dll"),
@@ -96,10 +93,8 @@ LC_RESET_FILES = (
     ("bin", "lcoverlay.dll"),
 )
 
-# Only dwmapi.dll and xinput1_4.dll are eligible for backup/restore: they are
-# Windows system DLLs that Steam does NOT ship natively in its folder, but a
-# user could legitimately have placed a different proxy there. LumaCore*.dll
-# and lcoverlay.dll are LumaCore's own files, no original to preserve.
+# Only proxy DLLs eligible for backup/restore (LumaCore's own DLLs have no
+# "original" to preserve).
 LC_BACKUP_DLLS = ("dwmapi.dll", "xinput1_4.dll")
 LC_BACKUP_DIR = "lumacore_backup"
 

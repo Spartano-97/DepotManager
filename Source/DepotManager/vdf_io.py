@@ -10,9 +10,7 @@ Two Steam files matter for LumaCore integration:
   Steam to show the game in the library and know which depots to mount.
   We write it so a natively-downloaded game appears ready to install/update.
 
-Backup strategy (improvement over the upstream SFF implementation, which only
-keeps a single rolling ``.backup`` and loses the original after the first
-write):
+Backup strategy:
 
 * ``<name>.depotmanager_orig`` — created ONCE on first contact, never
   overwritten. Lets us restore the true pre-DepotManager state if needed.
@@ -130,9 +128,7 @@ def _backup_rolling(path: Path) -> None:
 # ---------------------------------------------------------------------------
 # config.vdf DEPOT KEYS
 # ---------------------------------------------------------------------------
-# Path inside config.vdf to the depots subtree. Each entry is a case-insensitive
-# segment; the VDF produced by Steam uses exactly these spellings, but we stay
-# case-insensitive to be robust against locale/build differences.
+# Path inside config.vdf to the depots subtree (case-insensitive segments).
 _CONFIG_DEPOTS_PATH = ["InstallConfigStore", "Software", "Valve", "Steam", "depots"]
 
 

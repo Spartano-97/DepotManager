@@ -35,21 +35,17 @@ except ImportError:  # pragma: no cover
 
 logger = logging.getLogger("DepotManager.SteamPath")
 
-# Steam registry key holding the installation path. HKEY_CURRENT_USER is used by
-# the per-user installer; HKEY_LOCAL_MACHINE is the all-users fallback.
+# Steam registry key (HKCU per-user, HKLM all-users fallback).
 _STEAM_REG_KEY = r"Software\Valve\Steam"
 _STEAM_REG_VALUE = "SteamPath"
 
-# Fallback paths tried when the registry is unreadable. The (x86) variant is
-# the default for 32-bit Steam on 64-bit Windows.
+# Fallback paths when the registry is unreadable.
 _DEFAULT_STEAM_PATHS = (
     Path(r"C:\Program Files (x86)\Steam"),
     Path(r"C:\Program Files\Steam"),
 )
 
-# Endpoint for resolving AppID -> human readable name. Filters=basic keeps the
-# payload small. We do NOT follow the l=<lang> convention here because we only
-# need the name for the ACF installdir, which Steam re-localises on its own.
+# Steam Store endpoint for AppID -> name resolution.
 _STORE_APPDETAILS = "https://store.steampowered.com/api/appdetails"
 
 
