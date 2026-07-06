@@ -7,10 +7,12 @@ frozenlist==1.8.0
 idna==3.13
 multidict==6.7.1
 packaging==26.2
+pathvalidate==3.2.0
 pefile==2024.8.26
 propcache==0.4.1
 pyinstaller==6.20.0
 pyinstaller-hooks-contrib==2026.5
 pywin32-ctypes==0.2.3
 setuptools==82.0.1
+vdf==3.4
 yarl==1.23.0

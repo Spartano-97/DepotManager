@@ -20,11 +20,21 @@ class DownloadManager:
         inventory: dict,
         current_temp_dir: Optional[Path],
         log_callback: Callable[[str], None],
+        output_dir: Optional[Path] = None,
+        max_downloads: int = 16,
     ) -> None:
         self.settings = settings
         self.inventory = inventory
         self.current_temp_dir = current_temp_dir
         self.log_callback = log_callback
+        # When set, DepotDownloaderMod writes game files into this directory
+        # (used by the LumaCore "depotdownloader" mode to place files in
+        # <library>/steamapps/common/<installdir>). When None, behaviour is
+        # unchanged: files land in APP_DIR (legacy DepotManager flow).
+        self.output_dir = output_dir
+        # Per-depot parallel HTTP download slots passed to DepotDownloaderMod
+        # via -max-downloads. Default 16 matches the previous hard-coded value.
+        self.max_downloads = max_downloads
 
     def _write_keys_file(self, keys_dict: Dict[str, str]) -> None:
         """Writes the decryption keys file for the downloader."""
@@ -153,8 +163,13 @@ class DownloadManager:
                 "-depotkeys",
                 KEYS_FILE,
                 "-max-downloads",
-                "16",
+                str(self.max_downloads),
             ]
+            # When output_dir is set (LumaCore depotdownloader mode), redirect
+            # game files there. The directory must already exist: the caller
+            # (LumaCoreGames.add_game / GUI) is responsible for creating it.
+            if self.output_dir is not None:
+                cmd.extend(["-dir", str(self.output_dir)])
             logger.debug("Command: %s", " ".join(cmd))
 
             process: Optional[asyncio.subprocess.Process] = None

@@ -19,7 +19,7 @@ SETTINGS_FILE = str(APP_DIR / "settings.json")
 KEYS_FILE = str(APP_DIR / "keys.txt")
 LOG_FILE = str(APP_DIR / "depot_manager.log")
 
-APP_VERSION = "1.3.0"
+APP_VERSION = "2.0.0"
 
 _BANNER = (
     "  ____                  _       __  __                                    \n"
@@ -41,6 +41,11 @@ DEFAULT_SETTINGS: dict = {
     "selected_source": "morrenus",
     "max_concurrent_downloads": 1,
     "request_timeout": 30,
+    # --- LumaCore integration ---
+    "steam_path": "",
+    "lumacore_installed_version": "",
+    "lumacore_last_check": 0,
+    "lumacore_variant": "release",
 }
 
 SOURCES: dict = {
@@ -57,10 +62,58 @@ SOURCES: dict = {
 APPID_MIN = 1
 APPID_MAX = 2_000_000_000
 
+# AppID "1" is Steam's global/fake ownership id; must be filtered out when
+# writing depot keys / ACF / depotcache files.
+APPID_OWNERSHIP_FAKE = "1"
+
 # Regex patterns for Lua and Manifest files
 _RE_LUA_ADDAPPID = re.compile(r'addappid\((\d+),\s*\d+,\s*"([A-Za-z0-9]+)"\)')
 _RE_LUA_TABLE = re.compile(r'\[(\d+)\]\s*=\s*"([A-Za-z0-9]+)"')
 _RE_MANIFEST = re.compile(r"^(\d+)_(\d+)\.manifest$")
+_RE_LUA_SETMANIFEST = re.compile(r'setManifestid\(\s*(\d+)\s*,\s*"(\d+)"\s*\)')
+_RE_LUA_ADDAPPID_OWNERSHIP = re.compile(r"addappid\(\s*(\d+)\s*\)")
+
+# ---------------------------------------------------------------------------
+# LUMACORE CONSTANTS
+# ---------------------------------------------------------------------------
+# LumaCore binaries are NOT shipped in this repo nor in Midrags/SFF: they are
+# downloaded at install time from the official release page below.
+LUMACORE_REPO = "KoriaPolis/LumaCore"
+LUMACORE_RELEASE_API = f"https://api.github.com/repos/{LUMACORE_REPO}/releases/latest"
+
+# The four DLLs placed in the Steam root directory. dwmapi.dll + xinput1_4.dll
+# are proxy DLLs that load LumaCore.dll at Steam startup.
+LC_DLLS = ("dwmapi.dll", "xinput1_4.dll", "LumaCore.dll", "LumaCorePayload.dll")
+
+# Files removed on (re)install / uninstall. Tuple of (subdir, name) relative to
+# the Steam root. lcoverlay.dll is generated at runtime by LumaCore from
+# steamclient64.dll; we still wipe it so a fresh copy is produced.
+LC_RESET_FILES = (
+    ("", "dwmapi.dll"),
+    ("", "xinput1_4.dll"),
+    ("", "LumaCore.dll"),
+    ("", "LumaCorePayload.dll"),
+    ("bin", "lcoverlay.dll"),
+)
+
+# Only dwmapi.dll and xinput1_4.dll are eligible for backup/restore: they are
+# Windows system DLLs that Steam does NOT ship natively in its folder, but a
+# user could legitimately have placed a different proxy there. LumaCore*.dll
+# and lcoverlay.dll are LumaCore's own files, no original to preserve.
+LC_BACKUP_DLLS = ("dwmapi.dll", "xinput1_4.dll")
+LC_BACKUP_DIR = "lumacore_backup"
+
+# Cooldown for "check for update": avoid hammering GitHub API on every UI open.
+LUMACORE_CHECK_INTERVAL_SEC = 6 * 60 * 60  # 6 hours
+
+# Per-build pattern TOML mirrors (best-effort prewarm on install). {subdir} is
+# "steamclient" or "steamui" or "steamclientipc", {sha} is the lowercase hex
+# SHA-256 of the DLL.
+LUMACORE_PATTERN_MIRRORS = (
+    "https://raw.githubusercontent.com/KoriaPolis/Steam-Auto-PT/pattern/{subdir}/{sha}.toml",
+    "https://cdn.jsdelivr.net/gh/KoriaPolis/Steam-Auto-PT@pattern/{subdir}/{sha}.toml",
+)
+LUMACORE_PATTERN_DIR = "lumacore"  # <steam>/lumacore/pattern/...
 
 logger = logging.getLogger("DepotManager.Config")
 

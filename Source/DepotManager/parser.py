@@ -1,6 +1,7 @@
 import logging
 import zipfile
 from pathlib import Path
+from typing import Optional
 
 from .config import _RE_LUA_ADDAPPID, _RE_LUA_TABLE, _RE_MANIFEST
 
@@ -51,3 +52,45 @@ def scan_directory(temp_dir: Path) -> dict:
             ] = m
 
     return inv
+
+
+# ---------------------------------------------------------------------------
+# LUMACORE HELPERS (reused by lumacore_games to avoid duplication)
+# ---------------------------------------------------------------------------
+def get_lua_file(temp_dir: Path, appid: str) -> Optional[Path]:
+    """Locate the lua for ``appid`` inside an extracted API archive.
+
+    Preference order:
+      1. ``<appid>.lua`` (exact stem match).
+      2. First ``*.lua`` whose stem is all digits (API sometimes names the
+         file after the main app id even when the archive carries a different
+         AppID in its own filename).
+      3. First ``*.lua`` in the directory.
+
+    Returns None when the directory contains no lua at all.
+    """
+    direct = temp_dir / f"{appid}.lua"
+    if direct.is_file():
+        return direct
+    candidates = sorted(temp_dir.glob("*.lua"))
+    for c in candidates:
+        if c.stem.isdigit():
+            return c
+    return candidates[0] if candidates else None
+
+
+def manifest_gid_from_name(name: str) -> Optional[str]:
+    """Extract the manifest GID from a ``<depot>_<gid>.manifest`` filename.
+
+    Returns the GID as a string, or None if the name doesn't match the
+    expected pattern. Accepts either a full path or a bare filename.
+    """
+    from pathlib import Path as _Path
+
+    base = (
+        _Path(name).name
+        if not isinstance(name, str) or "/" in name or "\\" in name
+        else name
+    )
+    m = _RE_MANIFEST.match(base)
+    return m.group(2) if m else None

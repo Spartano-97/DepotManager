@@ -26,6 +26,7 @@ from .config import (
     save_settings,
 )
 from .downloader import DownloadManager
+from .lumacore_gui import LumaCoreTab
 
 logger = logging.getLogger("DepotManager.GUI")
 
@@ -158,7 +159,20 @@ class App(tk.Tk):
     def _setup_ui(self) -> None:
         ttk.Style()
 
-        top_frame = ttk.LabelFrame(self, text=" Configuration ", padding=10)
+        # Notebook: DepotDownloader tab (existing UI) + LumaCore Manager tab.
+        # The shared console stays outside the notebook so logs are visible
+        # from both tabs; the Start/Stop buttons live in the Actions section
+        # of the DepotDownloader tab.
+        self.notebook = ttk.Notebook(self)
+        self.notebook.pack(fill="both", expand=True, padx=10, pady=5)
+        tab_downloader = ttk.Frame(self.notebook)
+        self.notebook.add(tab_downloader, text="DepotDownloaderMod Manager")
+        self.lumacore_tab = LumaCoreTab(self.notebook, self)
+        self.notebook.add(self.lumacore_tab, text="LumaCore Manager")
+
+        top_frame = ttk.LabelFrame(
+            tab_downloader, text=" API Configuration ", padding=10
+        )
         top_frame.pack(fill="x", padx=10, pady=5)
 
         ttk.Label(top_frame, text="Source:").grid(row=0, column=0, sticky="w")
@@ -180,29 +194,34 @@ class App(tk.Tk):
             row=1, column=2
         )
 
-        mid_frame = ttk.Frame(self, padding=10)
-        mid_frame.pack(fill="x", padx=10)
+        # Actions section: input + fetch/load/select on row 0, Start/Stop on row 1.
+        actions_frame = ttk.LabelFrame(tab_downloader, text=" Actions ", padding=10)
+        actions_frame.pack(fill="x", padx=10, pady=5)
 
-        ttk.Label(mid_frame, text="Enter AppID:").pack(side="left")
-        self.appid_entry = ttk.Entry(mid_frame, width=15)
-        self.appid_entry.pack(side="left", padx=5)
+        ttk.Label(actions_frame, text="Enter AppID:").grid(row=0, column=0, sticky="w")
+        self.appid_entry = ttk.Entry(actions_frame, width=15)
+        self.appid_entry.grid(row=0, column=1, padx=5, sticky="w")
         self.fetch_btn = ttk.Button(
-            mid_frame, text="Fetch Manifest", command=self._on_fetch_click
+            actions_frame, text="Fetch Manifest", command=self._on_fetch_click
         )
-        self.fetch_btn.pack(side="left")
+        self.fetch_btn.grid(row=0, column=2, padx=(0, 5))
         self.load_btn = ttk.Button(
-            mid_frame, text="Load Archive...", command=self._on_load_click
+            actions_frame, text="Load Archive...", command=self._on_load_click
         )
-        self.load_btn.pack(side="left", padx=(5, 0))
-        ttk.Separator(mid_frame, orient="vertical").pack(side="left", padx=10, fill="y")
-        ttk.Button(mid_frame, text="☑ All", command=self._select_all).pack(
-            side="left", padx=(0, 3)
+        self.load_btn.grid(row=0, column=3, padx=(0, 5))
+        ttk.Separator(actions_frame, orient="vertical").grid(
+            row=0, column=4, padx=10, sticky="ns"
         )
-        ttk.Button(mid_frame, text="☐ None", command=self._deselect_all).pack(
-            side="left"
+        ttk.Button(actions_frame, text="☑ All", command=self._select_all).grid(
+            row=0, column=5, padx=(0, 3)
+        )
+        ttk.Button(actions_frame, text="☐ None", command=self._deselect_all).grid(
+            row=0, column=6
         )
 
-        self.table_frame = ttk.LabelFrame(self, text=" Depots Found ", padding=10)
+        self.table_frame = ttk.LabelFrame(
+            tab_downloader, text=" Depots Found ", padding=10
+        )
         self.table_frame.pack(fill="both", expand=True, padx=10, pady=5)
 
         columns = ("check", "id", "status", "key", "manifest")
@@ -226,6 +245,27 @@ class App(tk.Tk):
         self.tree.pack(side="left", fill="both", expand=True)
         scrollbar.pack(side="right", fill="y")
 
+        # Download action buttons — placed right below the Depots Found table,
+        # mirroring the LumaCore Manager tab's Add/Update/Remove button row.
+        download_btns = ttk.Frame(tab_downloader)
+        download_btns.pack(fill="x", padx=10, pady=(2, 4))
+        self.download_btn = ttk.Button(
+            download_btns,
+            text="Start Download",
+            command=self._on_download_click,
+            state="disabled",
+        )
+        self.download_btn.pack(side="left", padx=2)
+        self.stop_btn = ttk.Button(
+            download_btns,
+            text="Stop Download",
+            command=self._on_stop_click,
+            state="disabled",
+        )
+        self.stop_btn.pack(side="left", padx=2)
+
+        # Shared console (outside the notebook so logs are visible from both
+        # tabs). The Start/Stop buttons now live in the Actions section above.
         bottom_frame = ttk.Frame(self, padding=10)
         bottom_frame.pack(fill="both", padx=10, pady=5)
 
@@ -233,9 +273,6 @@ class App(tk.Tk):
             bottom_frame, height=12, bg="#1e1e1e", fg="#4CAF50", font=("Consolas", 10)
         )
         self.console.pack(fill="both", expand=True, pady=5)
-
-        btn_frame = ttk.Frame(bottom_frame)
-        btn_frame.pack(fill="x")
 
         ttk.Separator(bottom_frame, orient="horizontal").pack(fill="x", pady=(8, 0))
 
@@ -245,19 +282,6 @@ class App(tk.Tk):
             foreground="gray",
             font=("Consolas", 8),
         ).pack(anchor="e", pady=(3, 4))
-
-        self.download_btn = ttk.Button(
-            btn_frame,
-            text="▶ START DOWNLOAD",
-            command=self._on_download_click,
-            state="disabled",
-        )
-        self.download_btn.pack(side="left", fill="x", expand=True, padx=(0, 5))
-
-        self.stop_btn = ttk.Button(
-            btn_frame, text="🛑 STOP", command=self._on_stop_click, state="disabled"
-        )
-        self.stop_btn.pack(side="right", fill="x", expand=True, padx=(5, 0))
 
     def _load_settings_into_ui(self) -> None:
         selected = self.settings.get("selected_source", "morrenus")
