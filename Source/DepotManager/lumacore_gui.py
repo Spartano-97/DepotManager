@@ -855,6 +855,20 @@ class AddGameDialog(tk.Toplevel):
         bottom = ttk.Frame(self, padding=6)
         bottom.pack(fill="x", padx=6, pady=(2, 6))
 
+        # Mode selection: two radio buttons sharing a StringVar that holds
+        # the internal mode key ("steam_native"|"depotdownloader").
+        mode_row = ttk.Frame(bottom)
+        mode_row.pack(fill="x", pady=(0, 4))
+        ttk.Label(mode_row, text="Mode:").pack(side="left")
+        self.mode_var = tk.StringVar(value=self.DOWNLOAD_MODES[0][0])
+        for mode_key, mode_label in self.DOWNLOAD_MODES:
+            ttk.Radiobutton(
+                mode_row,
+                text=mode_label,
+                value=mode_key,
+                variable=self.mode_var,
+            ).pack(side="left", padx=5)
+
         # Library row: chosen by user (Add) or fixed (Update, read-only).
         # Populated after fetch in _populate_depots.
         lib_row = ttk.Frame(bottom)
@@ -870,20 +884,6 @@ class AddGameDialog(tk.Toplevel):
         # In update mode the combobox stays read-only (can't move the game).
         if self.update_mode:
             self.library_combo.config(state="disabled")
-
-        # Mode selection: two radio buttons sharing a StringVar that holds
-        # the internal mode key ("steam_native"|"depotdownloader").
-        mode_row = ttk.Frame(bottom)
-        mode_row.pack(fill="x", pady=(0, 4))
-        ttk.Label(mode_row, text="Mode:").pack(side="left")
-        self.mode_var = tk.StringVar(value=self.DOWNLOAD_MODES[0][0])
-        for mode_key, mode_label in self.DOWNLOAD_MODES:
-            ttk.Radiobutton(
-                mode_row,
-                text=mode_label,
-                value=mode_key,
-                variable=self.mode_var,
-            ).pack(side="left", padx=5)
 
         # Library combobox is only relevant for depotdownloader mode. In
         # steam_native mode Steam handles install location natively, so the
