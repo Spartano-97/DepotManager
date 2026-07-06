@@ -1,3 +1,5 @@
+"""Async HTTP client for Morrenus/Ryuu manifest APIs."""
+
 import asyncio
 import logging
 import tempfile
@@ -12,6 +14,7 @@ from .parser import safe_extract, scan_directory
 logger = logging.getLogger("DepotManager.APIClient")
 
 
+# --- EXCEPTIONS ---
 class APIError(Exception):
     """Base exception class for API Client errors."""
 
@@ -39,6 +42,7 @@ class APINetworkError(APIError):
     pass
 
 
+# --- API CLIENT ---
 class APIClient:
     """Client to perform asynchronous requests to Ryuu/Morrenus manifest APIs."""
 
@@ -49,10 +53,8 @@ class APIClient:
     async def fetch_manifests(
         self, app_id: str, api_key: str, source: str
     ) -> Tuple[Path, dict]:
-        """
-        Fetches the zip archive containing manifests and Lua configs for the given AppID,
-        extracts it safely, scans it, and returns the temporary directory and inventory dict.
-        """
+        """Fetches the zip archive containing manifests and Lua configs for the given AppID,
+        extracts it safely, scans it, and returns the temporary directory and inventory dict."""
         logger.debug(
             "API request for AppID: %s (source: %s)",
             app_id,
@@ -70,7 +72,6 @@ class APIClient:
             headers = {"User-Agent": "DepotManager/2.0", "X-API-Key": api_key}
             params = None
 
-        # Create a new unique temp directory
         temp_dir = Path(tempfile.mkdtemp(prefix="depot_manager_"))
         logger.debug("Temporary directory created: %s", temp_dir)
 
@@ -93,11 +94,8 @@ class APIClient:
                 data = await r.read()
 
             zip_path = temp_dir / "data.zip"
-            # Write bytes to data.zip using threading pool
             await asyncio.to_thread(self._write_file, zip_path, data)
-            # Extract safely using threading pool
             await asyncio.to_thread(safe_extract, zip_path, temp_dir)
-            # Scan directory using threading pool
             local_inv = await asyncio.to_thread(scan_directory, temp_dir)
 
             return temp_dir, local_inv
@@ -109,7 +107,6 @@ class APIClient:
             logger.exception("aiohttp client error.")
             raise APIError(f"HTTP request failed: {exc}") from exc
         except Exception as exc:
-            # Propagate specific exceptions, wrap others
             if isinstance(exc, APIError):
                 raise exc
             logger.exception("Unexpected error in API Client.")
@@ -117,6 +114,5 @@ class APIClient:
 
     @staticmethod
     def _write_file(path: Path, data: bytes) -> None:
-        """Utility method to write bytes to a file."""
         with open(path, "wb") as f:
             f.write(data)

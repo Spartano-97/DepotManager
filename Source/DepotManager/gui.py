@@ -1,3 +1,5 @@
+"""Main Tkinter application window with tabbed Notebook."""
+
 import asyncio
 import concurrent.futures
 import logging
@@ -75,9 +77,7 @@ class App(tk.Tk):
         self._print_banner()
         logger.info("Application started successfully.")
 
-    # -----------------------------------------------------------------------
-    # LIFECYCLE & ASYNC BRIDGE
-    # -----------------------------------------------------------------------
+    # --- LIFECYCLE & ASYNC BRIDGE ---
     def _print_banner(self) -> None:
         self.console.insert(tk.END, _BANNER)
 
@@ -132,9 +132,7 @@ class App(tk.Tk):
     def run_async(self, coro) -> concurrent.futures.Future:
         return asyncio.run_coroutine_threadsafe(coro, self.loop)
 
-    # -----------------------------------------------------------------------
-    # LOGGING UI
-    # -----------------------------------------------------------------------
+    # --- LOGGING UI ---
     def log_safe(self, message: str) -> None:
         logger.info(message)
         self.after(0, self._append_to_log, message)
@@ -153,14 +151,10 @@ class App(tk.Tk):
             self.log_buffer.clear()
         self.log_timer_active = False
 
-    # -----------------------------------------------------------------------
-    # GRAPHICAL INTERFACE
-    # -----------------------------------------------------------------------
+    # --- GRAPHICAL INTERFACE ---
     def _setup_ui(self) -> None:
         ttk.Style()
 
-        # Notebook with 2 tabs. The shared console stays outside so logs
-        # are visible from both; Start/Stop live in the Actions section.
         self.notebook = ttk.Notebook(self)
         self.notebook.pack(fill="both", expand=True, padx=10, pady=5)
         tab_downloader = ttk.Frame(self.notebook)
@@ -192,7 +186,6 @@ class App(tk.Tk):
             row=1, column=2
         )
 
-        # Actions section: input + fetch/load/select on row 0, Start/Stop on row 1.
         actions_frame = ttk.LabelFrame(tab_downloader, text=" Actions ", padding=10)
         actions_frame.pack(fill="x", padx=10, pady=5)
 
@@ -243,8 +236,6 @@ class App(tk.Tk):
         self.tree.pack(side="left", fill="both", expand=True)
         scrollbar.pack(side="right", fill="y")
 
-        # Download action buttons — below the Depots Found table. Both stay
-        # always enabled; guards in the handlers show contextual warnings.
         download_btns = ttk.Frame(tab_downloader)
         download_btns.pack(fill="x", padx=10, pady=(2, 4))
         self.download_btn = ttk.Button(
@@ -260,8 +251,6 @@ class App(tk.Tk):
         )
         self.stop_btn.pack(side="left", padx=2)
 
-        # Shared console (outside the notebook so logs are visible from both
-        # tabs). The Start/Stop buttons now live in the Actions section above.
         bottom_frame = ttk.Frame(self, padding=10)
         bottom_frame.pack(fill="both", padx=10, pady=5)
 
@@ -346,9 +335,7 @@ class App(tk.Tk):
             values[0] = "☐"
             self.tree.item(row, values=values)
 
-    # -----------------------------------------------------------------------
-    # FETCH & SCAN
-    # -----------------------------------------------------------------------
+    # --- FETCH & SCAN ---
     def _on_fetch_click(self) -> None:
         appid_str = self.appid_entry.get().strip()
         source_key = self._get_selected_source_key()
@@ -595,11 +582,8 @@ class App(tk.Tk):
                 values=("☐", did, status, info["key"] or "Missing", manifest_name),
             )
 
-    # -----------------------------------------------------------------------
-    # DOWNLOAD
-    # -----------------------------------------------------------------------
+    # --- DOWNLOAD ---
     def _on_download_click(self) -> None:
-        # Guard: refuse to start while another download is running.
         if self._inner_task is not None and not self._inner_task.done():
             messagebox.showwarning(
                 "Download in progress",
@@ -635,8 +619,6 @@ class App(tk.Tk):
             )
             return
 
-        # Start/Stop stay enabled; only fetch/load are disabled during download
-        # to prevent the inventory/temp_dir from being overwritten mid-run.
         self.fetch_btn.config(state="disabled")
         self.load_btn.config(state="disabled")
 
@@ -686,7 +668,5 @@ class App(tk.Tk):
         finally:
             self._inner_task = None
             self.download_task = None
-            # Start/Stop are always enabled; only fetch/load are re-enabled
-            # now that the inventory/temp_dir can be safely replaced.
             self.after(0, lambda: self.fetch_btn.config(state="normal"))
             self.after(0, lambda: self.load_btn.config(state="normal"))

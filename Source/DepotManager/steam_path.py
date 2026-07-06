@@ -1,13 +1,4 @@
-"""Steam installation discovery and library resolution (Windows runtime).
-
-This module is Windows-oriented (uses ``winreg`` to read the Steam path from the
-registry) but every function degrades gracefully when run on non-Windows hosts
-or when the registry is unavailable: callers get ``None`` / empty lists and can
-fall back to a manual path stored in ``settings.json``.
-
-All network access (app name lookup) is async and reuses the existing
-``aiohttp.ClientSession`` owned by the GUI.
-"""
+"""Steam installation discovery, library resolution, and AppID helpers."""
 
 from __future__ import annotations
 
@@ -18,14 +9,14 @@ import sys
 from pathlib import Path
 from typing import List, Optional
 
-try:  # Windows-only stdlib module; absent on WSL/Linux.
+try:
     import winreg  # type: ignore
-except ImportError:  # pragma: no cover - exercised only on non-Windows hosts.
+except ImportError:  # pragma: no cover
     winreg = None  # type: ignore
 
 try:
     import vdf as _vdf
-except ImportError:  # pragma: no cover - vdf is a hard dep on Windows runtime.
+except ImportError:  # pragma: no cover
     _vdf = None  # type: ignore
 
 try:
@@ -35,27 +26,24 @@ except ImportError:  # pragma: no cover
 
 logger = logging.getLogger("DepotManager.SteamPath")
 
-# Steam registry key (HKCU per-user, HKLM all-users fallback).
 _STEAM_REG_KEY = r"Software\Valve\Steam"
 _STEAM_REG_VALUE = "SteamPath"
 
-# Fallback paths when the registry is unreadable.
 _DEFAULT_STEAM_PATHS = (
     Path(r"C:\Program Files (x86)\Steam"),
     Path(r"C:\Program Files\Steam"),
 )
 
-# Steam Store endpoint for AppID -> name resolution.
 _STORE_APPDETAILS = "https://store.steampowered.com/api/appdetails"
 
 
+# --- STEAM PATH DETECTION ---
 def is_windows() -> bool:
     """True when running on a Windows interpreter (not WSL/Linux)."""
     return sys.platform == "win32"
 
 
 def _read_registry_steam_path() -> Optional[Path]:
-    """Read Steam install path from HKCU then HKLM. Returns None if unreadable."""
     if winreg is None:
         return None
     for root in (winreg.HKEY_CURRENT_USER, winreg.HKEY_LOCAL_MACHINE):
@@ -74,13 +62,8 @@ def _read_registry_steam_path() -> Optional[Path]:
 def get_steam_path(settings: dict) -> Optional[Path]:
     """Resolve the Steam installation directory.
 
-    Order of precedence:
-      1. ``settings["steam_path"]`` if it points to a valid directory
-         (user override persisted across sessions).
-      2. Windows registry (HKCU then HKLM).
-      3. Hard-coded default paths.
-
-    Returns None when Steam cannot be located.
+    Order of precedence: user override in settings, Windows registry
+    (HKCU then HKLM), hard-coded default paths. Returns None if not found.
     """
     configured = settings.get("steam_path", "").strip()
     if configured:
@@ -105,11 +88,12 @@ def set_steam_path(settings: dict, path: Path) -> None:
     settings["steam_path"] = str(path)
 
 
+# --- LIBRARIES ---
 def get_steam_libraries(steam_path: Path) -> List[Path]:
     """Return all Steam library folders, including the root one.
 
-    Parses ``<steam>/steamapps/libraryfolders.vdf``. The Steam install dir is
-    always the first entry. Duplicates and non-existent paths are filtered.
+    Parses ``<steam>/steamapps/libraryfolders.vdf``. The Steam install dir
+    is always the first entry. Duplicates and non-existent paths are filtered.
     """
     libraries: List[Path] = []
     if steam_path.is_dir():
@@ -131,7 +115,6 @@ def get_steam_libraries(steam_path: Path) -> List[Path]:
         logger.warning("Cannot parse %s: %s", vdf_path, exc)
         return libraries
 
-    # Structure: {"libraryfolders": {"0": {"path": "..."}, "1": {...}, ...}}
     root = data.get("libraryfolders", {}) if isinstance(data, dict) else {}
     for entry in root.values():
         if not isinstance(entry, dict):
@@ -162,10 +145,8 @@ def pick_library(
 ) -> Optional[Path]:
     """Choose the library to install a game into.
 
-    If ``appid`` is given and an ACF already exists for it in some library, that
-    library is reused (so updates land in the same place). Otherwise the first
-    library with enough free space is returned. ``required_bytes=0`` short-
-    circuits the space check.
+    If ``appid`` is given and an ACF already exists for it, that library is
+    reused. Otherwise the first library with enough free space is returned.
     """
     if not libraries:
         return None
@@ -173,7 +154,7 @@ def pick_library(
     if appid:
         existing = find_acf_for_app(libraries, appid)
         if existing is not None:
-            return existing.parent  # library steamapps dir
+            return existing.parent
 
     if required_bytes <= 0:
         return libraries[0]
@@ -192,7 +173,6 @@ def library_label(library: Path) -> str:
     """Human-readable label for a library, including free space in GB.
 
     Example: ``"D:\\SteamLibrary\\steamapps  (1823 GB free)"``.
-    On disk-usage failure the free-space suffix is omitted.
     """
     try:
         usage = shutil.disk_usage(library)
@@ -207,13 +187,8 @@ def pick_library_default(
 ) -> Optional[Path]:
     """Choose a default library for the Add Game dialog.
 
-    Selection order:
-      1. If an ACF for ``appid`` already exists in some library, reuse that
-         (used by Update Selected to keep the game in its current location).
-      2. Otherwise, the library with the most free space (heuristic for
-         "where the user likely wants a new big game to land").
-
-    Returns None only when ``libraries`` is empty.
+    Reuses the library of an existing ACF for ``appid`` if present, otherwise
+    picks the library with the most free space.
     """
     if not libraries:
         return None
@@ -236,6 +211,7 @@ def pick_library_default(
     return best if best is not None else libraries[0]
 
 
+# --- APPID HELPERS ---
 async def get_app_name(
     session: "aiohttp.ClientSession", appid: str, timeout: int = 15
 ) -> str:
@@ -262,9 +238,7 @@ async def get_app_name(
 def sanitize_installdir(name: str) -> str:
     """Make a string safe to use as a Steam ``installdir`` folder name.
 
-    Uses ``pathvalidate`` when available (handles Windows reserved names like
-    CON/PRN/NUL/COM1-9/LPT1-9 and illegal characters); falls back to a small
-    regex-based sanitizer otherwise.
+    Uses ``pathvalidate`` when available; falls back to a regex sanitizer.
     """
     if not name:
         return "game"
@@ -272,8 +246,6 @@ def sanitize_installdir(name: str) -> str:
         from pathvalidate import sanitize_filename
 
         cleaned = sanitize_filename(name, platform="windows").strip()
-        # sanitize_filename can return empty for inputs made only of illegal
-        # chars; guard against that.
         return cleaned or "game"
     except ImportError:
         import re

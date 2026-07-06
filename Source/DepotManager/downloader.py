@@ -1,3 +1,5 @@
+"""Subprocess orchestration for DepotDownloaderMod.exe."""
+
 import asyncio
 import logging
 import re
@@ -11,11 +13,10 @@ from .config import APP_DIR, KEYS_FILE
 
 logger = logging.getLogger("DepotManager.Downloader")
 
-# Windows-only flag to prevent DepotDownloaderMod.exe from spawning a visible
-# console window. On non-Windows hosts the value is 0 (no-op).
 _NO_WINDOW = subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
 
 
+# --- DOWNLOAD MANAGER ---
 class DownloadManager:
     """Manages downloading selected Steam depots using DepotDownloaderMod.exe."""
 
@@ -32,14 +33,10 @@ class DownloadManager:
         self.inventory = inventory
         self.current_temp_dir = current_temp_dir
         self.log_callback = log_callback
-        # When set, game files land in this directory (LumaCore depotdownloader
-        # mode). When None, files land in APP_DIR (legacy flow).
         self.output_dir = output_dir
-        # Per-depot parallel HTTP download slots (-max-downloads flag).
         self.max_downloads = max_downloads
 
     def _write_keys_file(self, keys_dict: Dict[str, str]) -> None:
-        """Writes the decryption keys file for the downloader."""
         try:
             with open(KEYS_FILE, "w", encoding="utf-8") as f:
                 for did, key in keys_dict.items():
@@ -53,7 +50,6 @@ class DownloadManager:
         self, selected_ids: List[str], exe_path: Path, app_id: str
     ) -> None:
         """Orchestrates downloads of all selected depots with controlled concurrency."""
-        # Pre-populate keys
         keys_to_write = {
             str(did): self.inventory[str(did)]["key"]
             for did in selected_ids
@@ -93,7 +89,6 @@ class DownloadManager:
                     self.log_callback("--- ✅ ALL SELECTED DOWNLOADS COMPLETED ---")
 
             except asyncio.CancelledError:
-                # Handle cancellation of the orchestrating task
                 for t in tasks:
                     t.cancel()
                 self.log_callback("--- 🛑 DOWNLOAD OPERATION CANCELLED ---")
@@ -142,7 +137,6 @@ class DownloadManager:
         manifest_id = match.group(1)
         local_manifest = APP_DIR / manifest_src.name
 
-        # Copy manifest to local APP_DIR so DepotDownloaderMod can access it
         try:
             await asyncio.to_thread(shutil.copy, str(manifest_src), str(local_manifest))
         except OSError as exc:
@@ -167,7 +161,6 @@ class DownloadManager:
                 "-max-downloads",
                 str(self.max_downloads),
             ]
-            # When output_dir is set, redirect game files there.
             if self.output_dir is not None:
                 cmd.extend(["-dir", str(self.output_dir)])
             logger.debug("Command: %s", " ".join(cmd))

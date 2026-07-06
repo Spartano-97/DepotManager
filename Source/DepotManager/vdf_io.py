@@ -1,21 +1,4 @@
-"""VDF / ACF read-write helpers with case-insensitive navigation.
-
-Two Steam files matter for LumaCore integration:
-
-* ``<steam>/config/config.vdf`` — holds depot AES decryption keys under
-  ``InstallConfigStore.Software.Valve.Steam.depots.<depot_id>.DecryptionKey``.
-  We add/remove keys here so LumaCore (and Steam itself) can decrypt depots.
-
-* ``<library>/steamapps/appmanifest_<appid>.acf`` — per-game state used by
-  Steam to show the game in the library and know which depots to mount.
-  We write it so a natively-downloaded game appears ready to install/update.
-
-Backup strategy:
-
-* ``<name>.depotmanager_orig`` — created ONCE on first contact, never
-  overwritten. Lets us restore the true pre-DepotManager state if needed.
-* ``<name>.backup`` — created before every mutating operation, rolling.
-"""
+"""VDF/ACF read-write helpers with backup management."""
 
 from __future__ import annotations
 
@@ -27,15 +10,13 @@ from typing import Dict, List, Optional, Tuple
 
 try:
     import vdf as _vdf
-except ImportError:  # pragma: no cover - vdf is a hard dep on Windows runtime.
+except ImportError:  # pragma: no cover
     _vdf = None  # type: ignore
 
 logger = logging.getLogger("DepotManager.VDFIO")
 
 
-# ---------------------------------------------------------------------------
-# LOW LEVEL
-# ---------------------------------------------------------------------------
+# --- LOW LEVEL ---
 def read_vdf(path: Path) -> dict:
     """Parse a VDF file into a dict. Returns {} on missing/unreadable file."""
     if _vdf is None:
@@ -71,8 +52,6 @@ def write_vdf(path: Path, data: dict) -> None:
 
 
 def _case_insensitive_get(node: dict, key: str) -> Optional[dict]:
-    """Fetch a child dict by key, ignoring case. Returns None if absent or
-    if the child is not a dict (caller is expected to create it then)."""
     if not isinstance(node, dict):
         return None
     key_lower = key.lower()
@@ -83,11 +62,6 @@ def _case_insensitive_get(node: dict, key: str) -> Optional[dict]:
 
 
 def _case_insensitive_ensure(node: dict, key: str) -> dict:
-    """Get-or-create a child dict at ``key`` (case-insensitive lookup).
-
-    If a same-named key exists but holds a non-dict value, it is replaced
-    (we never expect that to happen for the paths we walk inside config.vdf).
-    """
     existing = _case_insensitive_get(node, key)
     if existing is not None:
         return existing
@@ -96,7 +70,6 @@ def _case_insensitive_ensure(node: dict, key: str) -> dict:
 
 
 def _ensure_path(root: dict, path: List[str]) -> dict:
-    """Walk/create a chain of nested dicts (case-insensitive at each level)."""
     node = root
     for segment in path:
         node = _case_insensitive_ensure(node, segment)
@@ -104,7 +77,6 @@ def _ensure_path(root: dict, path: List[str]) -> dict:
 
 
 def _backup_once(path: Path) -> None:
-    """Create <name>.depotmanager_orig the first time we touch a file."""
     orig = path.with_name(path.name + ".depotmanager_orig")
     if path.is_file() and not orig.exists():
         try:
@@ -115,7 +87,6 @@ def _backup_once(path: Path) -> None:
 
 
 def _backup_rolling(path: Path) -> None:
-    """Create <name>.backup before each mutating operation (overwrites prior)."""
     if not path.is_file():
         return
     backup = path.with_name(path.name + ".backup")
@@ -125,20 +96,15 @@ def _backup_rolling(path: Path) -> None:
         logger.warning("Cannot create rolling backup %s: %s", backup, exc)
 
 
-# ---------------------------------------------------------------------------
-# config.vdf DEPOT KEYS
-# ---------------------------------------------------------------------------
-# Path inside config.vdf to the depots subtree (case-insensitive segments).
+# --- CONFIG.VDF DEPOT KEYS ---
 _CONFIG_DEPOTS_PATH = ["InstallConfigStore", "Software", "Valve", "Steam", "depots"]
 
 
 def add_depot_keys(config_vdf_path: Path, depot_keys: Dict[str, str]) -> bool:
     """Insert/overwrite depot decryption keys in config.vdf.
 
-    ``depot_keys`` maps ``depot_id`` (str) -> 64-hex AES key (str). Entries with
-    an empty key value are skipped.
-
-    Returns True on success, False if the file could not be updated.
+    ``depot_keys`` maps ``depot_id`` (str) -> 64-hex AES key (str). Entries
+    with an empty key value are skipped. Returns True on success.
     """
     if _vdf is None:
         raise RuntimeError("vdf module is not installed.")
@@ -188,7 +154,7 @@ def remove_depot_keys(config_vdf_path: Path, depot_ids: List[str]) -> bool:
             break
 
     if not isinstance(depots, dict):
-        return True  # nothing to remove
+        return True
 
     targets_lower = {str(d).lower() for d in depot_ids}
     to_delete = [k for k in depots.keys() if k.lower() in targets_lower]
@@ -204,9 +170,7 @@ def remove_depot_keys(config_vdf_path: Path, depot_ids: List[str]) -> bool:
         return False
 
 
-# ---------------------------------------------------------------------------
-# appmanifest_<appid>.acf
-# ---------------------------------------------------------------------------
+# --- ACF MANIFEST ---
 def write_acf(
     acf_path: Path,
     appid: str,
@@ -219,7 +183,7 @@ def write_acf(
     """Write an ACF manifest so Steam lists the app and knows its depots.
 
     ``depots`` is a list of ``(depot_id, manifest_gid)`` tuples. The GID is
-    written both to ``InstalledDepots`` (structured) and ``MountedDepots``
+    written to both ``InstalledDepots`` (structured) and ``MountedDepots``
     (flat map), matching what Steam itself writes.
     """
     if _vdf is None:
@@ -281,8 +245,7 @@ def read_acf(acf_path: Path) -> Optional[dict]:
 def read_acf_depots(acf_path: Path) -> Dict[str, str]:
     """Return ``{depot_id: manifest_gid}`` from an ACF's MountedDepots.
 
-    MountedDepots is the simplest flat map; InstalledDepots is structured.
-    We prefer MountedDepots and fall back to InstalledDepots for robustness.
+    Falls back to InstalledDepots if MountedDepots is absent.
     """
     state = read_acf(acf_path)
     if not state:
@@ -301,16 +264,12 @@ def read_acf_depots(acf_path: Path) -> Dict[str, str]:
 
 
 def remove_acf(acf_path: Path) -> bool:
-    """Delete an ACF file, keeping a backup first.
+    """Delete an ACF file, keeping a ``.depotmanager_bak`` backup first.
 
-    A copy is saved as ``<acf>.depotmanager_bak`` (overwriting any prior
-    backup) so that ``restore_acf_backup`` can recover it if the user
-    realises the game was legitimately owned. Returns True if deleted or
-    already absent.
+    Returns True if deleted or already absent.
     """
     if not acf_path.is_file():
         return True
-    # Best-effort backup; never block deletion if the backup fails.
     try:
         shutil.copy2(acf_path, acf_path.with_name(acf_path.name + ".depotmanager_bak"))
         logger.debug("ACF backup saved: %s.depotmanager_bak", acf_path.name)
@@ -325,9 +284,29 @@ def remove_acf(acf_path: Path) -> bool:
         return False
 
 
-# ---------------------------------------------------------------------------
-# ACF BACKUP MANAGEMENT
-# ---------------------------------------------------------------------------
+def update_acf_size(
+    acf_path: Path, size_on_disk: int, buildid: Optional[str] = None
+) -> bool:
+    """Patch SizeOnDisk (and optionally buildid) on an existing ACF.
+
+    Used after DepotDownloaderMod finishes writing files.
+    """
+    state = read_acf(acf_path)
+    if not state:
+        return False
+    state["SizeOnDisk"] = str(size_on_disk)
+    if buildid is not None:
+        state["buildid"] = str(buildid)
+        state["TargetBuildID"] = str(buildid)
+    try:
+        write_vdf(acf_path, {"AppState": state})
+        return True
+    except OSError as exc:
+        logger.error("Cannot patch ACF %s: %s", acf_path, exc)
+        return False
+
+
+# --- ACF BACKUP MANAGEMENT ---
 ACF_BACKUP_SUFFIX = ".depotmanager_bak"
 
 
@@ -335,9 +314,8 @@ def restore_acf_backup(acf_path: Path) -> bool:
     """Restore an ACF from its ``.depotmanager_bak`` backup.
 
     Safety: if the ACF already exists (e.g. the user re-installed the game
-    legitimately via Steam), the backup is NOT applied — we must not
-    overwrite a real install state. Returns True if restored, False if
-    skipped (ACF exists) or no backup available.
+    legitimately via Steam), the backup is NOT applied. Returns True if
+    restored, False if skipped or no backup available.
     """
     backup = acf_path.with_name(acf_path.name + ACF_BACKUP_SUFFIX)
     if not backup.is_file():
@@ -381,26 +359,3 @@ def clean_acf_backups(libraries: List[Path]) -> int:
         except OSError as exc:
             logger.warning("Cannot delete ACF backup %s: %s", backup, exc)
     return removed
-
-
-def update_acf_size(
-    acf_path: Path, size_on_disk: int, buildid: Optional[str] = None
-) -> bool:
-    """Patch SizeOnDisk (and optionally buildid) on an existing ACF.
-
-    Used after DepotDownloaderMod finishes writing files: the ACF was created
-    with size 0, and we now know the real on-disk size.
-    """
-    state = read_acf(acf_path)
-    if not state:
-        return False
-    state["SizeOnDisk"] = str(size_on_disk)
-    if buildid is not None:
-        state["buildid"] = str(buildid)
-        state["TargetBuildID"] = str(buildid)
-    try:
-        write_vdf(acf_path, {"AppState": state})
-        return True
-    except OSError as exc:
-        logger.error("Cannot patch ACF %s: %s", acf_path, exc)
-        return False

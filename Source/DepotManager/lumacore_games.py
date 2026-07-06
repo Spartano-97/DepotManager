@@ -1,23 +1,4 @@
-"""Per-game management for the LumaCore integration layer.
-
-Each game managed by DepotManager maps to:
-
-  * ``<steam>/config/stplug-in/<appid>.lua``  — ownership + depot keys + manifest
-    pins, reloaded by LumaCore at runtime via its directory watcher.
-  * ``<steam>/config/config.vdf``             — AES decryption keys injected
-    under ``depots.<depot_id>.DecryptionKey``.
-  * ``<steam>/depotcache/<depot>_<gid>.manifest`` (+ mirror under
-    ``<steam>/config/depotcache/``) — manifest blobs Steam needs to mount
-    the depots.
-  * ``<library>/steamapps/appmanifest_<appid>.acf`` — ACF written so Steam
-    lists the app and can either download it natively (mode ``steam_native``)
-    or pick up files already laid down by DepotDownloaderMod (mode
-    ``depotdownloader``).
-
-The lua + manifest + keys are produced by the existing API fetch pipeline
-(``api_client.APIClient.fetch_manifests`` + ``parser.scan_directory``) and are
-passed into ``add_game`` as the already-built ``inventory`` dict.
-"""
+"""Per-game management for the LumaCore integration layer."""
 
 from __future__ import annotations
 
@@ -70,18 +51,11 @@ DEPOTCACHE_SUBDIR = "depotcache"
 DEPOTCACHE_CONFIG_SUBDIR = "config/depotcache"
 SAVED_LUA_DIR = APP_DIR / "saved_lua"
 
-DownloadMode = str  # "steam_native" | "depotdownloader"
+DownloadMode = str
 
 
-# ---------------------------------------------------------------------------
-# LUA PARSING (for list_installed_games / remove_game)
-# ---------------------------------------------------------------------------
+# --- LUA PARSING ---
 def _parse_lua_summary(lua_path: Path) -> Dict:
-    """Extract depot/key/manifest info from a stplug-in lua file.
-
-    Returns ``{app_id, depots: [(depot_id, key)], manifest_pins: {depot: gid},
-    ownership_ids: [app_id]}``.
-    """
     summary: Dict = {
         "app_id": None,
         "depots": [],
@@ -107,14 +81,11 @@ def _parse_lua_summary(lua_path: Path) -> Dict:
     return summary
 
 
-# ---------------------------------------------------------------------------
-# LIST
-# ---------------------------------------------------------------------------
+# --- LIST ---
 def list_installed_games(steam_path: Path) -> List[Dict]:
     """List every game managed by DepotManager (i.e. with a stplug-in lua).
 
     Each entry: ``{appid, name, depot_count, has_acf, lua_path, depots}``.
-    ``name`` is the ACF name when available, else the AppID.
     """
     stplug_in = steam_path / STPLUG_IN_SUBDIR
     if not stplug_in.is_dir():
@@ -149,11 +120,8 @@ def list_installed_games(steam_path: Path) -> List[Dict]:
     return games
 
 
-# ---------------------------------------------------------------------------
-# ADD / UPDATE
-# ---------------------------------------------------------------------------
+# --- ADD / UPDATE ---
 def _install_lua(steam_path: Path, appid: str, lua_src: Path) -> Path:
-    """Copy the lua into stplug-in and keep a local backup."""
     stplug_in = steam_path / STPLUG_IN_SUBDIR
     stplug_in.mkdir(parents=True, exist_ok=True)
     dest = stplug_in / f"{appid}.lua"
@@ -167,12 +135,6 @@ def _install_lua(steam_path: Path, appid: str, lua_src: Path) -> Path:
 
 
 def _install_manifests(steam_path: Path, inventory: Dict) -> int:
-    """Copy every .manifest in ``inventory`` into Steam's depotcache.
-
-    Both ``<steam>/depotcache/`` and ``<steam>/config/depotcache/`` receive a
-    copy, since Steam/LumaCore may read from either depending on version.
-    Returns the number of manifest files written.
-    """
     primary = steam_path / DEPOTCACHE_SUBDIR
     mirror = steam_path / DEPOTCACHE_CONFIG_SUBDIR
     primary.mkdir(parents=True, exist_ok=True)
@@ -204,8 +166,6 @@ def _install_manifests(steam_path: Path, inventory: Dict) -> int:
 
 
 def _depot_keys_from_inventory(inventory: Dict) -> Dict[str, str]:
-    """Build {depot_id: key} for depots with a non-empty key, excluding
-    the global ownership id '1'."""
     out: Dict[str, str] = {}
     for did, info in inventory.items():
         if str(did) == APPID_OWNERSHIP_FAKE:
@@ -217,12 +177,6 @@ def _depot_keys_from_inventory(inventory: Dict) -> Dict[str, str]:
 
 
 def _depots_for_acf(inventory: Dict) -> List[Tuple[str, str]]:
-    """Build [(depot_id, manifest_gid)] for the ACF's InstalledDepots.
-
-    The GID comes from the manifest filename (``<depot>_<gid>.manifest``) via
-    ``parser.manifest_gid_from_name``. Depots without a manifest file are
-    skipped (Steam cannot mount them).
-    """
     out: List[Tuple[str, str]] = []
     for did, info in inventory.items():
         if str(did) == APPID_OWNERSHIP_FAKE:
@@ -250,24 +204,18 @@ async def add_game(
 ) -> Tuple[bool, str]:
     """Install a game's LumaCore artefacts (lua, keys, manifests, ACF).
 
-    The actual file download for ``download_mode == "depotdownloader"`` is
-    performed by the caller (GUI) via the existing DownloadManager, which will
-    receive the chosen library + installdir from this function's return value
-    via settings/inventory mutation. For ``steam_native`` Steam itself will
-    download the files after the next launch.
+    In ``steam_native`` mode only lua + keys + manifests are written (Steam
+    handles install location natively). In ``depotdownloader`` mode the ACF
+    is also written in the chosen library.
 
     ``library_override``: when set, the ACF is written into this specific
-    library (must be one of ``get_steam_libraries(steam_path)``). When None,
-    the default heuristic is used (reuse the library of an existing ACF for
-    the same appid, else the library with the most free space).
+    library. When None, the default heuristic is used.
 
     Returns (True, human_message) on success.
     """
     if not steam_path.is_dir():
         return False, f"Steam path not found: {steam_path}"
 
-    # Guard: refuse without LumaCore installed (Steam vanilla ignores
-    # stplug-in and non-owned DecryptionKey entries).
     from .lumacore_setup import get_installed_version as _lc_installed
 
     if not _lc_installed(settings, steam_path):
@@ -302,17 +250,12 @@ async def add_game(
     name = await get_app_name(session, appid)
 
     if download_mode == "steam_native":
-        # Steam handles install location natively via its own library chooser
-        # when the user clicks Install. We only inject lua + keys + manifests.
         _progress(100, f"Game {appid} prepared. Restart Steam to install.")
         return True, (
             f"Game {appid} ({name}) injected. Restart Steam: it will appear "
             "as owned in your library. Click Install to choose library and download."
         )
 
-    # depotdownloader mode: we download the files ourselves, so we need the
-    # target library + installdir and write the ACF so Steam sees the files
-    # as "installed".
     installdir = sanitize_installdir(name)
 
     _progress(75, "Choosing Steam library...")
@@ -322,7 +265,6 @@ async def add_game(
 
     library: Optional[Path] = None
     if library_override is not None:
-        # Validate the override is actually one of the known libraries.
         if library_override in libraries:
             library = library_override
             logger.info("Using user-selected library: %s", library)
@@ -342,9 +284,6 @@ async def add_game(
     acf_path = library / f"appmanifest_{appid}.acf"
     write_acf(acf_path, appid, name, installdir, depots)
 
-    # depotdownloader mode: the caller (GUI) will invoke DownloadManager with
-    # output_dir = <library parent>/common/<installdir> and then patch the ACF
-    # size via vdf_io.update_acf_size.
     _progress(100, f"Game {appid} prepared for DepotDownloaderMod.")
     return True, f"Game {appid} ({name}) prepared. Run DepotDownloaderMod next."
 
@@ -363,8 +302,7 @@ async def update_game(
     """Re-run add_game. The lua/keys/manifests/ACF are overwritten idempotently.
 
     For Update Selected the GUI passes ``library_override`` set to the library
-    where the game's ACF currently lives, so the update lands in the same
-    place (the library combobox is read-only in update mode).
+    where the game's ACF currently lives.
     """
     return await add_game(
         steam_path,
@@ -379,9 +317,7 @@ async def update_game(
     )
 
 
-# ---------------------------------------------------------------------------
-# REMOVE
-# ---------------------------------------------------------------------------
+# --- REMOVE ---
 def remove_game(steam_path: Path, appid: str, scope: str = "full") -> Tuple[bool, str]:
     """Remove a managed game.
 
@@ -401,7 +337,6 @@ def remove_game(steam_path: Path, appid: str, scope: str = "full") -> Tuple[bool
         except OSError as exc:
             logger.warning("Cannot remove %s: %s", lua, exc)
 
-    # Also drop a stray lua sometimes left in config/ root.
     stray = steam_path / "config" / f"{appid}.lua"
     if stray.is_file():
         try:
@@ -409,7 +344,6 @@ def remove_game(steam_path: Path, appid: str, scope: str = "full") -> Tuple[bool
         except OSError:
             pass
 
-    # Local backup.
     backup = SAVED_LUA_DIR / f"{appid}.lua"
     if backup.is_file():
         try:
@@ -420,8 +354,6 @@ def remove_game(steam_path: Path, appid: str, scope: str = "full") -> Tuple[bool
     if scope in ("full", "full_keys"):
         libraries = get_steam_libraries(steam_path)
 
-        # Determine depot ids + manifest gids to delete. Prefer the ACF (it
-        # records exactly what was mounted); fall back to parsing the lua.
         depot_gids: Dict[str, str] = {}
         acf_path = find_acf_for_app(libraries, appid)
         if acf_path is not None:
@@ -442,8 +374,6 @@ def remove_game(steam_path: Path, appid: str, scope: str = "full") -> Tuple[bool
                     except OSError as exc:
                         logger.warning("Cannot remove %s: %s", m, exc)
 
-        # Remove ACF from every library that has one. remove_acf saves a
-        # .depotmanager_bak backup before deleting.
         for lib in libraries:
             acf = lib / f"appmanifest_{appid}.acf"
             if acf.is_file():
@@ -480,25 +410,18 @@ def remove_all_games(steam_path: Path) -> int:
     return len(games)
 
 
-# ---------------------------------------------------------------------------
-# ACF BACKUP MANAGEMENT
-# ---------------------------------------------------------------------------
+# --- ACF BACKUP MANAGEMENT ---
 def restore_acf_backups_selected(
     steam_path: Path, backup_paths: List[Path]
 ) -> Tuple[int, int]:
     """Restore the given ACF backups (selected by the user in the GUI).
 
-    Each backup is restored via ``vdf_io.restore_acf_backup`` which skips
-    restoration when the ACF already exists (e.g. the user legitimately
-    re-installed the game via Steam).
-
-    Returns ``(restored, skipped)`` counts.
+    Returns ``(restored, skipped)`` counts. Skipped when the ACF already
+    exists (legitimate re-install via Steam).
     """
     restored = 0
     skipped = 0
     for backup in backup_paths:
-        # The backup filename is appmanifest_<appid>.acf.depotmanager_bak;
-        # restore_acf_backup expects the target ACF path (without the suffix).
         target_name = backup.name[: -len(".depotmanager_bak")]
         target_acf = backup.parent / target_name
         if _restore_acf_backup_vdf(target_acf):

@@ -1,3 +1,5 @@
+"""ZIP extraction, depot inventory scanning, and LumaCore lua helpers."""
+
 import logging
 import zipfile
 from pathlib import Path
@@ -8,6 +10,7 @@ from .config import _RE_LUA_ADDAPPID, _RE_LUA_TABLE, _RE_MANIFEST
 logger = logging.getLogger("DepotManager.Parser")
 
 
+# --- EXTRACTION & SCAN ---
 def safe_extract(zip_path: Path, extract_to: Path) -> None:
     """Extracts a ZIP file safely while preventing Zip Slip vulnerabilities."""
     extract_to_res = extract_to.resolve()
@@ -33,7 +36,6 @@ def scan_directory(temp_dir: Path) -> dict:
                 content = f.read()
             if "\ufffd" in content:
                 logger.warning("Lua file with problematic encoding: %s", lua_file.name)
-
         except OSError as exc:
             logger.warning("Cannot read %s: %s", lua_file.name, exc)
             continue
@@ -54,9 +56,7 @@ def scan_directory(temp_dir: Path) -> dict:
     return inv
 
 
-# ---------------------------------------------------------------------------
-# LUMACORE HELPERS (reused by lumacore_games to avoid duplication)
-# ---------------------------------------------------------------------------
+# --- LUMACORE HELPERS ---
 def get_lua_file(temp_dir: Path, appid: str) -> Optional[Path]:
     """Locate the lua for ``appid`` inside an extracted API archive.
 

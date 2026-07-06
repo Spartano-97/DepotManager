@@ -1,9 +1,4 @@
-"""Tkinter UI for the LumaCore Manager tab + Add Game dialog.
-
-Tkinter-only module imported by ``gui.py``. Reuses the existing async bridge
-(``App.run_async`` / ``App.session``) and API fetch pipeline
-(``api_client.APIClient`` + ``parser``) so the LumaCore tab feels native.
-"""
+"""Tkinter UI for the LumaCore Manager tab and Add Game dialog."""
 
 from __future__ import annotations
 
@@ -38,9 +33,7 @@ if TYPE_CHECKING:  # pragma: no cover
     from .gui import App
 
 
-# ---------------------------------------------------------------------------
-# Main tab
-# ---------------------------------------------------------------------------
+# --- LUMACORE TAB ---
 class LumaCoreTab(ttk.Frame):
     """The LumaCore Manager tab. Inserted into the main window's Notebook."""
 
@@ -52,17 +45,13 @@ class LumaCoreTab(ttk.Frame):
         super().__init__(parent, padding=6)
         self.app = app
         self.settings = app.settings
-        self.log = app.log_safe  # shared console logger
+        self.log = app.log_safe
         self._add_dialog: Optional["AddGameDialog"] = None
         self._setup_ui()
         self.after(50, self._refresh_steam_path_display)
         self.after(100, self._refresh_games_list)
 
-    # ------------------------------------------------------------------
-    # LAYOUT
-    # ------------------------------------------------------------------
     def _setup_ui(self) -> None:
-        # --- Steam path section ---
         steam_frame = ttk.LabelFrame(self, text=" Steam Installation ", padding=8)
         steam_frame.pack(fill="x", padx=4, pady=4)
 
@@ -79,7 +68,6 @@ class LumaCoreTab(ttk.Frame):
         )
         steam_frame.columnconfigure(1, weight=1)
 
-        # --- LumaCore component section ---
         lc_frame = ttk.LabelFrame(self, text=" LumaCore Component ", padding=8)
         lc_frame.pack(fill="x", padx=4, pady=4)
 
@@ -105,7 +93,6 @@ class LumaCoreTab(ttk.Frame):
             variable=self.complete_uninstall_var,
         ).grid(row=2, column=0, columnspan=3, sticky="w", pady=(4, 0))
 
-        # ACF backup management row.
         acf_btns = ttk.Frame(lc_frame)
         acf_btns.grid(row=3, column=0, columnspan=3, sticky="w", pady=(4, 0))
         ttk.Button(
@@ -115,7 +102,6 @@ class LumaCoreTab(ttk.Frame):
             acf_btns, text="Clean ACF Backups", command=self._on_clean_acf_backups
         ).pack(side="left", padx=2)
 
-        # --- Managed games section ---
         games_frame = ttk.LabelFrame(self, text=" Managed Games ", padding=8)
         games_frame.pack(fill="both", expand=True, padx=4, pady=4)
 
@@ -155,29 +141,17 @@ class LumaCoreTab(ttk.Frame):
             games_btns, text="Refresh List", command=self._refresh_games_list
         ).pack(side="left", padx=2)
 
-    # ------------------------------------------------------------------
-    # STEAM PATH
-    # ------------------------------------------------------------------
+    # --- STEAM PATH ---
     def _current_steam_path(self) -> Optional[Path]:
         return get_steam_path(self.settings)
 
     def _is_lumacore_installed(self) -> bool:
-        """True when LumaCore is installed (all 4 DLLs present in Steam dir).
-
-        Uses the same validator as the business logic layer so the GUI and
-        lumacore_games.add_game agree on what "installed" means.
-        """
         steam = self._current_steam_path()
         if steam is None:
             return False
         return bool(_lc_installed_version(self.settings, steam))
 
     def _warn_lumacore_not_installed(self, action: str) -> None:
-        """Log + messagebox telling the user to install LumaCore first.
-
-        ``action`` is a short noun phrase describing what was blocked
-        ("add a game", "update a game").
-        """
         self.log(
             "[LumaCore] Cannot " + action + ": LumaCore is not installed. "
             "Use 'Install / Update' in the LumaCore Component section first."
@@ -196,7 +170,6 @@ class LumaCoreTab(ttk.Frame):
         self.steam_path_var.set(str(p) if p else "(not detected)")
 
     def _on_detect_steam(self) -> None:
-        # Clear any manual override so detection re-runs from registry/defaults.
         self.settings["steam_path"] = ""
         p = get_steam_path(self.settings)
         if p:
@@ -220,7 +193,6 @@ class LumaCoreTab(ttk.Frame):
         if not choice:
             return
         path = Path(choice)
-        # Sanity check: must look like a Steam dir.
         if not (path / "steam.exe").is_file() and not (path / "steamapps").is_dir():
             if not messagebox.askyesno(
                 "Unlikely Steam path",
@@ -234,9 +206,7 @@ class LumaCoreTab(ttk.Frame):
         self._refresh_steam_path_display()
         self.log(f"[LumaCore] Steam path set manually: {path}")
 
-    # ------------------------------------------------------------------
-    # LUMACORE COMPONENT
-    # ------------------------------------------------------------------
+    # --- LUMACORE COMPONENT ---
     def _on_check_update(self) -> None:
         self.app.run_async(self._check_update_async())
 
@@ -254,7 +224,6 @@ class LumaCoreTab(ttk.Frame):
         self.lc_status_var.set(
             f"Installed: {installed or 'not installed'}  |  Latest: {latest}"
         )
-        # Three distinct wordings: not installed vs. update vs. up to date.
         if not installed:
             self.log(
                 f"[LumaCore] LumaCore {latest} is available to install. "
@@ -311,8 +280,6 @@ class LumaCoreTab(ttk.Frame):
         complete = self.complete_uninstall_var.get()
         installed = self._is_lumacore_installed()
 
-        # Pre-check: enumerate managed games to show what will be removed
-        # and short-circuit the no-op cases.
         try:
             games = lumacore_games.list_installed_games(steam)
         except Exception:
@@ -320,14 +287,12 @@ class LumaCoreTab(ttk.Frame):
         games_count = len(games)
 
         if not complete:
-            # Plain DLL uninstall: no game files touched.
             warn = "This will close Steam and remove the LumaCore DLLs."
             if not messagebox.askyesno("Uninstall LumaCore", warn + "\n\nContinue?"):
                 return
             self.app.run_async(self._uninstall_async(steam, complete))
             return
 
-        # complete=True: 4 branches based on installed + games_count.
         if installed and games_count == 0:
             if not messagebox.askyesno(
                 "Uninstall LumaCore (complete)",
@@ -353,14 +318,13 @@ class LumaCoreTab(ttk.Frame):
             ):
                 return
         elif not installed and games_count == 0:
-            # Total no-op: nothing to uninstall, nothing to clean.
             messagebox.showinfo(
                 "Nothing to do",
                 "LumaCore is not installed and no managed games were found.\n"
                 "There is nothing to uninstall or clean up.",
             )
             return
-        else:  # not installed and games_count > 0 (orphan cleanup)
+        else:
             listing = "\n".join(f"  - {g['appid']}: {g['name']}" for g in games[:20])
             if games_count > 20:
                 listing += f"\n  ... and {games_count - 20} more"
@@ -398,9 +362,7 @@ class LumaCoreTab(ttk.Frame):
         else:
             messagebox.showwarning("Uninstall", message)
 
-    # ------------------------------------------------------------------
-    # MANAGED GAMES
-    # ------------------------------------------------------------------
+    # --- MANAGED GAMES ---
     def _refresh_games_list(self) -> None:
         for row in self.games_tree.get_children():
             self.games_tree.delete(row)
@@ -482,8 +444,6 @@ class LumaCoreTab(ttk.Frame):
         steam = self._current_steam_path()
         if steam is None:
             return
-        # Remove is allowed even without LumaCore installed: it is the only
-        # way to clean up orphan files left by an incomplete uninstall.
         if not self._is_lumacore_installed():
             self.log(
                 f"[LumaCore] LumaCore not installed — cleaning up orphan files "
@@ -499,9 +459,7 @@ class LumaCoreTab(ttk.Frame):
         self.log(f"[LumaCore] {message}")
         self._refresh_games_list()
 
-    # ------------------------------------------------------------------
-    # ACF BACKUPS
-    # ------------------------------------------------------------------
+    # --- ACF BACKUPS ---
     def _on_restore_acf_backups(self) -> None:
         steam = self._current_steam_path()
         if steam is None:
@@ -556,17 +514,13 @@ class LumaCoreTab(ttk.Frame):
         messagebox.showinfo("Done", f"Deleted {count} ACF backup(s).")
 
 
-# ---------------------------------------------------------------------------
-# Restore ACF Backups dialog (selective)
-# ---------------------------------------------------------------------------
+# --- RESTORE ACF DIALOG ---
 class RestoreAcfDialog(tk.Toplevel):
     """Modal dialog to let the user pick which ACF backups to restore.
 
-    For each backup file (``appmanifest_<appid>.acf.depotmanager_bak``) we show
-    the AppID, the game name (read from the backup content), the library path,
-    the backup date, and a status flag indicating whether restoring it would
-    overwrite an existing ACF (in which case restore will be skipped for
-    safety).
+    For each backup file (``appmanifest_<appid>.acf.depotmanager_bak``) the
+    AppID, game name, library path, backup date, and a status flag are shown.
+    Restoring is skipped for backups where the ACF already exists.
     """
 
     def __init__(self, parent: LumaCoreTab, steam_path: Path, backups: list) -> None:
@@ -635,13 +589,10 @@ class RestoreAcfDialog(tk.Toplevel):
         self._populate()
 
     def _backup_info(self, backup: Path) -> dict:
-        """Build a row dict for a backup file: appid, name, library, date, status."""
-        # appmanifest_<appid>.acf.depotmanager_bak -> <appid>
         name = backup.name
         appid = ""
         if name.startswith("appmanifest_") and name.endswith(".acf.depotmanager_bak"):
             appid = name[len("appmanifest_") : -len(".acf.depotmanager_bak")]
-        # Try to read the game name from the backup content.
         game_name = appid
         try:
             state = _read_acf_vdf(backup)
@@ -649,9 +600,7 @@ class RestoreAcfDialog(tk.Toplevel):
                 game_name = str(state["name"])
         except Exception:
             pass
-        # Library = parent dir basename (or full path if short).
         lib_label = str(backup.parent)
-        # Backup date from mtime.
         try:
             import datetime
 
@@ -659,7 +608,6 @@ class RestoreAcfDialog(tk.Toplevel):
             date_str = datetime.datetime.fromtimestamp(mtime).strftime("%Y-%m-%d")
         except OSError:
             date_str = "?"
-        # Status: does the target ACF already exist?
         target_acf = backup.parent / name[: -len(".depotmanager_bak")]
         status = "\u26a0 ACF exists" if target_acf.is_file() else "Available"
         return {
@@ -695,7 +643,7 @@ class RestoreAcfDialog(tk.Toplevel):
         if region != "cell":
             return
         col = self.tree.identify_column(event.x)
-        if col != "#1":  # only the checkbox column toggles
+        if col != "#1":
             return
         row = self.tree.identify_row(event.y)
         if not row:
@@ -725,7 +673,6 @@ class RestoreAcfDialog(tk.Toplevel):
         for row, checked in self.checked.items():
             if not checked:
                 continue
-            # Map row -> backup file by matching appid + library.
             values = self.tree.item(row)["values"]
             appid = str(values[1])
             lib = str(values[3])
@@ -755,9 +702,7 @@ class RestoreAcfDialog(tk.Toplevel):
         self.destroy()
 
 
-# ---------------------------------------------------------------------------
-# Add Game / Update Game dialog
-# ---------------------------------------------------------------------------
+# --- ADD GAME DIALOG ---
 class AddGameDialog(tk.Toplevel):
     """Modal dialog to fetch a lua from the configured API and inject it.
 
@@ -797,7 +742,6 @@ class AddGameDialog(tk.Toplevel):
             self.appid_entry.insert(0, preset_appid)
 
     def _setup_ui(self, preset_appid: str) -> None:
-        # --- Source / API key ---
         top = ttk.LabelFrame(self, text=" Source ", padding=8)
         top.pack(fill="x", padx=6, pady=4)
 
@@ -823,7 +767,6 @@ class AddGameDialog(tk.Toplevel):
         key_field = SOURCES[selected]["key_field"]
         self.api_key_entry.insert(0, self.settings.get(key_field, ""))
 
-        # --- AppID + fetch ---
         mid = ttk.Frame(self, padding=6)
         mid.pack(fill="x", padx=6)
         ttk.Label(mid, text="AppID:").pack(side="left")
@@ -832,7 +775,6 @@ class AddGameDialog(tk.Toplevel):
         self.fetch_btn = ttk.Button(mid, text="Fetch", command=self._on_fetch)
         self.fetch_btn.pack(side="left")
 
-        # --- Depots found ---
         depots_frame = ttk.LabelFrame(self, text=" Depots Found ", padding=6)
         depots_frame.pack(fill="both", expand=True, padx=6, pady=4)
         columns = ("id", "status", "key", "manifest")
@@ -851,12 +793,9 @@ class AddGameDialog(tk.Toplevel):
         self.tree.configure(yscrollcommand=sb.set)
         sb.pack(side="right", fill="y")
 
-        # --- Library + download mode + confirm ---
         bottom = ttk.Frame(self, padding=6)
         bottom.pack(fill="x", padx=6, pady=(2, 6))
 
-        # Mode selection: two radio buttons sharing a StringVar that holds
-        # the internal mode key ("steam_native"|"depotdownloader").
         mode_row = ttk.Frame(bottom)
         mode_row.pack(fill="x", pady=(0, 4))
         ttk.Label(mode_row, text="Mode:").pack(side="left")
@@ -869,8 +808,6 @@ class AddGameDialog(tk.Toplevel):
                 variable=self.mode_var,
             ).pack(side="left", padx=5)
 
-        # Library row: chosen by user (Add) or fixed (Update, read-only).
-        # Populated after fetch in _populate_depots.
         lib_row = ttk.Frame(bottom)
         lib_row.pack(fill="x", pady=(0, 4))
         ttk.Label(lib_row, text="Library:").pack(side="left")
@@ -879,17 +816,11 @@ class AddGameDialog(tk.Toplevel):
             lib_row, textvariable=self.library_var, state="readonly", width=60
         )
         self.library_combo.pack(side="left", padx=5, fill="x", expand=True)
-        # Maps combobox display label -> library Path. Filled in _populate_depots.
         self._library_map: dict[str, Path] = {}
-        # In update mode the combobox stays read-only (can't move the game).
         if self.update_mode:
             self.library_combo.config(state="disabled")
 
-        # Library combobox is only relevant for depotdownloader mode. In
-        # steam_native mode Steam handles install location natively, so the
-        # library selection is disabled. In update mode it is always locked.
         self.mode_var.trace_add("write", self._on_mode_change)
-        # Apply the initial state (default mode is steam_native -> disabled).
         self._on_mode_change()
 
         self.confirm_btn = ttk.Button(
@@ -899,14 +830,6 @@ class AddGameDialog(tk.Toplevel):
         ttk.Button(bottom, text="Cancel", command=self.destroy).pack(side="right")
 
     def _on_mode_change(self, *args) -> None:
-        """Toggle the library combobox based on the selected download mode.
-
-        steam_native       -> library disabled (Steam chooses install location)
-        depotdownloader    -> library enabled (user chooses where files land)
-
-        In update mode the library is always disabled (the game stays where it
-        already is), so this callback is a no-op there.
-        """
         if self.update_mode:
             return
         if self.mode_var.get() == "steam_native":
@@ -914,7 +837,6 @@ class AddGameDialog(tk.Toplevel):
         else:
             self.library_combo.config(state="readonly")
 
-    # ------------------------------------------------------------------
     def _selected_source_key(self) -> str:
         label = self.source_var.get()
         for k, info in SOURCES.items():
@@ -947,7 +869,6 @@ class AddGameDialog(tk.Toplevel):
 
     async def _fetch_async(self, app_id: str, api_key: str, source: str) -> None:
         self.app.log_safe(f"[LumaCore] Fetching lua for AppID {app_id} ({source})...")
-        # Clean previous temp dir if any.
         if self.temp_dir and self.temp_dir.exists():
             try:
                 await asyncio.to_thread(shutil.rmtree, self.temp_dir)
@@ -987,7 +908,6 @@ class AddGameDialog(tk.Toplevel):
         for row in self.tree.get_children():
             self.tree.delete(row)
         appid = self.appid_entry.get().strip()
-        # Mirror the main tab: drop the AppID itself from the inventory display.
         inv = {k: v for k, v in self.inventory.items() if k != appid}
         for did, info in sorted(inv.items()):
             status = (
@@ -1003,17 +923,9 @@ class AddGameDialog(tk.Toplevel):
             )
         self.confirm_btn.config(state="normal" if inv else "disabled")
 
-        # Populate the library combobox.
         self._populate_library_combo(appid)
 
     def _populate_library_combo(self, appid: str) -> None:
-        """Fill the library combobox with all known Steam libraries.
-
-        In ``update_mode`` the combobox is locked to the library where the
-        game's ACF currently lives (read-only). In ``add`` mode the user can
-        pick any library; default selection is the library with the most free
-        space (via ``pick_library_default``).
-        """
         libraries = get_steam_libraries(self.steam_path)
         if not libraries:
             self.library_combo.set("")
@@ -1024,10 +936,6 @@ class AddGameDialog(tk.Toplevel):
         self.library_combo["values"] = list(self._library_map.keys())
 
         if self.update_mode:
-            # Lock to the current ACF's library. If no ACF exists (e.g. the
-            # game was previously injected without an ACF), fall back
-            # to pick_library_default but keep the combobox disabled so the
-            # update lands in a deterministic place.
             acf = find_acf_for_app(libraries, appid)
             if acf is not None:
                 current_lib = acf.parent
@@ -1037,7 +945,6 @@ class AddGameDialog(tk.Toplevel):
                 default_lib = pick_library_default(libraries, appid)
                 self.library_var.set(library_label(default_lib) if default_lib else "")
         else:
-            # Add mode: default to the library with the most free space.
             default_lib = pick_library_default(libraries, appid)
             self.library_var.set(library_label(default_lib) if default_lib else "")
 
@@ -1049,7 +956,6 @@ class AddGameDialog(tk.Toplevel):
             messagebox.showerror("Error", "Fetch a manifest first.")
             return
         mode = self.mode_var.get()
-        # Resolve the library override from the combobox (None if unset/invalid).
         library_override = self._library_map.get(self.library_var.get())
         self.confirm_btn.config(state="disabled")
         self.app.run_async(self._confirm_async(appid, mode, library_override))
@@ -1095,7 +1001,6 @@ class AddGameDialog(tk.Toplevel):
 
         self.app.log_safe(f"[LumaCore] {message}")
 
-        # If depotdownloader mode, kick off the file download now.
         if ok and mode == "depotdownloader":
             await self._run_depotdownloader(appid)
 
@@ -1107,7 +1012,6 @@ class AddGameDialog(tk.Toplevel):
             self.confirm_btn.config(state="normal")
 
     async def _run_depotdownloader(self, appid: str) -> None:
-        """Run DepotDownloaderMod to materialise game files for this app."""
         exe_name = self.settings.get(
             "exe_name", "../DepotDownloaderMod/DepotDownloaderMod.exe"
         )
@@ -1123,8 +1027,6 @@ class AddGameDialog(tk.Toplevel):
             )
             return
 
-        # Choose library + installdir (must match what add_game wrote to the ACF).
-        # Prefer the library the user picked in the dialog; fall back to default.
         library = self._library_map.get(self.library_var.get())
         if library is None:
             libraries = get_steam_libraries(self.steam_path)
@@ -1163,7 +1065,6 @@ class AddGameDialog(tk.Toplevel):
             self.app.log_safe(f"[LumaCore] Download error: {exc}")
             return
 
-        # Patch ACF with real on-disk size.
         try:
             total_size = sum(
                 f.stat().st_size for f in common_dir.rglob("*") if f.is_file()

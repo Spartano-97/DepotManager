@@ -1,1 +1,1 @@
-# DepotManager package
+"""DepotManager package."""

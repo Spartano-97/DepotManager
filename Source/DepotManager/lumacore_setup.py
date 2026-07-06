@@ -1,15 +1,4 @@
-"""LumaCore component lifecycle: install, version check, uninstall.
-
-LumaCore ships as four DLLs placed in the Steam install directory:
-
-  * ``dwmapi.dll``  — DWM proxy loaded by Steam at startup
-  * ``xinput1_4.dll`` — XInput proxy, backup load gate
-  * ``LumaCore.dll`` — main hook library
-  * ``LumaCorePayload.dll`` — injected into game processes for online-fix
-
-Binaries are NOT vendored in this repository: they are downloaded at install
-time from the official release page on GitHub (``KoriaPolis/LumaCore``).
-"""
+"""LumaCore component lifecycle: install, version check, uninstall."""
 
 from __future__ import annotations
 
@@ -43,25 +32,16 @@ logger = logging.getLogger("DepotManager.LumaCoreSetup")
 
 ProgressCB = Optional[Callable[[int, int, str], None]]
 
-# Regex that recognises the LumaCore tag format ("V18", "V4", ...).
 _RE_LC_VERSION = re.compile(r"^V(\d+)$", re.IGNORECASE)
 
 
-# ---------------------------------------------------------------------------
-# VERSION HELPERS
-# ---------------------------------------------------------------------------
+# --- VERSION HELPERS ---
 def _normalise_version(tag: str) -> Optional[Tuple[str, int]]:
-    """Normalise a LumaCore tag into ("V", major_int).
-
-    Returns None for tags that don't match the ``V<number>`` shape, so callers
-    can fall back to a raw string comparison.
-    """
     if not tag:
         return None
     m = _RE_LC_VERSION.match(tag.strip())
     if m:
         return ("V", int(m.group(1)))
-    # Tolerate "LumaCore V5" release names.
     tail = tag.strip().split()[-1]
     m = _RE_LC_VERSION.match(tail)
     if m:
@@ -70,11 +50,6 @@ def _normalise_version(tag: str) -> Optional[Tuple[str, int]]:
 
 
 def _version_key(tag: str) -> Tuple[int, ...]:
-    """Sort/comparison key for a LumaCore version tag.
-
-    Higher is newer. Unknown formats degrade to a tuple that sorts below any
-    known version, so "no info" never claims to be an upgrade.
-    """
     norm = _normalise_version(tag)
     if norm is None:
         return (0,)
@@ -87,26 +62,21 @@ def is_version_newer(latest: str, installed: str) -> bool:
 
 
 def get_installed_version(settings: dict, steam_path: Optional[Path]) -> str:
-    """Return the cached installed version, validating that DLLs are present.
+    """Return the cached installed version, validating that all 4 DLLs are present.
 
-    Returns "" when LumaCore is not actually installed (the cached value gets
-    cleared by the caller via save_settings to keep things consistent).
+    Returns "" when LumaCore is not actually installed.
     """
     cached = str(settings.get("lumacore_installed_version", "")).strip()
     if not cached:
         return ""
     if steam_path is None or not steam_path.is_dir():
         return ""
-    # Consider installed only if every required DLL is in place; partial
-    # state means a previous install was interrupted.
     if not all((steam_path / dll).is_file() for dll in LC_DLLS):
         return ""
     return cached
 
 
-# ---------------------------------------------------------------------------
-# GITHUB RELEASE FETCH
-# ---------------------------------------------------------------------------
+# --- GITHUB RELEASE FETCH ---
 async def fetch_latest_release(
     session: aiohttp.ClientSession, timeout: int = 10
 ) -> Dict:
@@ -141,13 +111,6 @@ async def fetch_latest_release(
 
 
 def _pick_asset(assets: list, variant: str) -> Optional[Dict]:
-    """Choose the right downloadable asset for ``variant`` ('release'/'debug').
-
-    Preference order:
-      1. Exact case-insensitive match on ``Release.zip`` / ``Debug.zip``.
-      2. Any ``<variant>.zip``.
-      3. First generic ``.zip`` that is not "Source code".
-    """
     if not assets:
         return None
     target = ("Release.zip" if variant == "release" else "Debug.zip").lower()
@@ -167,24 +130,14 @@ def _pick_asset(assets: list, variant: str) -> Optional[Dict]:
     return None
 
 
-# ---------------------------------------------------------------------------
-# UPDATE CHECK
-# ---------------------------------------------------------------------------
+# --- UPDATE CHECK ---
 async def check_for_update(
     settings: dict, session: aiohttp.ClientSession, force: bool = False
 ) -> Dict:
     """Compare the installed LumaCore version against the latest GitHub release.
 
-    Respects a 6h cooldown (configurable via ``LUMACORE_CHECK_INTERVAL_SEC``)
-    unless ``force`` is set. Returns::
-
-        {
-          "installed": str,        # "" if not installed
-          "latest": str,           # "" if unknown
-          "update_available": bool,
-          "checked_at": float,     # epoch seconds
-          "source": "remote"|"cache",
-        }
+    Respects a 6h cooldown unless ``force`` is set. Returns a dict with
+    keys: installed, latest, update_available, checked_at, source.
     """
     import time
 
@@ -241,11 +194,8 @@ async def check_for_update(
         }
 
 
-# ---------------------------------------------------------------------------
-# INSTALL / UNINSTALL
-# ---------------------------------------------------------------------------
+# --- INSTALL / UNINSTALL ---
 def _reset_lumacore_files(steam_path: Path) -> Tuple[int, list]:
-    """Delete every file in LC_RESET_FILES. Returns (removed_count, failures)."""
     removed = 0
     failures = []
     for subdir, name in LC_RESET_FILES:
@@ -262,11 +212,6 @@ def _reset_lumacore_files(steam_path: Path) -> Tuple[int, list]:
 
 
 def _backup_proxy_dlls(steam_path: Path) -> int:
-    """Copy dwmapi.dll / xinput1_4.dll to <steam>/lumacore_backup/ if present.
-
-    Only proxy DLLs that may have a legitimate pre-existing source are
-    backed up; LumaCore's own DLLs have no "original" to preserve.
-    """
     backup_dir = steam_path / LC_BACKUP_DIR
     backup_dir.mkdir(parents=True, exist_ok=True)
     backed_up = 0
@@ -283,7 +228,6 @@ def _backup_proxy_dlls(steam_path: Path) -> int:
 
 
 def _restore_proxy_dlls(steam_path: Path) -> int:
-    """Restore previously backed-up proxy DLLs (inverse of _backup_proxy_dlls)."""
     backup_dir = steam_path / LC_BACKUP_DIR
     if not backup_dir.is_dir():
         return 0
@@ -301,11 +245,6 @@ def _restore_proxy_dlls(steam_path: Path) -> int:
 
 
 def _extract_dlls_from_zip(zip_path: Path, steam_path: Path) -> int:
-    """Extract the 4 LumaCore DLLs from a ZIP archive into ``steam_path``.
-
-    DLLs are matched by basename, case-insensitive, regardless of any nested
-    folder structure inside the archive. Returns the number of DLLs written.
-    """
     targets_lower = {d.lower() for d in LC_DLLS}
     written = 0
     with zipfile.ZipFile(zip_path, "r") as zf:
@@ -315,9 +254,7 @@ def _extract_dlls_from_zip(zip_path: Path, steam_path: Path) -> int:
             base = Path(member.filename).name.lower()
             if base not in targets_lower:
                 continue
-            dest = steam_path / base  # canonical case as in LC_DLLS via lookup
-            # Map back to the canonical casing used by LC_DLLS so the file
-            # written to disk matches what LumaCore expects.
+            dest = steam_path / base
             for canonical in LC_DLLS:
                 if canonical.lower() == base:
                     dest = steam_path / canonical
@@ -330,7 +267,6 @@ def _extract_dlls_from_zip(zip_path: Path, steam_path: Path) -> int:
 
 
 def _sha256_of_file(path: Path) -> Optional[str]:
-    """Hex SHA-256 of a file, or None if unreadable."""
     if not path.is_file():
         return None
     h = hashlib.sha256()
@@ -345,16 +281,9 @@ def _sha256_of_file(path: Path) -> Optional[str]:
 
 
 async def _prewarm_patterns(steam_path: Path, session: aiohttp.ClientSession) -> int:
-    """Best-effort download of per-build pattern TOMLs.
-
-    Pattern files are keyed by the SHA-256 of the corresponding Steam DLL.
-    Mirrors are tried in order; failures are non-fatal. Returns the number of
-    patterns successfully cached.
-    """
     pattern_root = steam_path / LUMACORE_PATTERN_DIR / "pattern"
     pattern_root.mkdir(parents=True, exist_ok=True)
 
-    # (steam_dll_basename, subdir_in_repo)
     candidates = (
         ("steamclient64.dll", ""),
         ("steamui.dll", ""),
@@ -366,7 +295,6 @@ async def _prewarm_patterns(steam_path: Path, session: aiohttp.ClientSession) ->
         sha = _sha256_of_file(steam_path / dll_name)
         if not sha:
             continue
-        # Local cache layout mirrors the repo: pattern/[subdir/]<sha>.toml
         local_dir = pattern_root / subdir if subdir else pattern_root
         local_dir.mkdir(parents=True, exist_ok=True)
         local_file = local_dir / f"{sha}.toml"
@@ -421,7 +349,7 @@ async def install_lumacore(
         if progress_cb:
             try:
                 progress_cb(percent, 100, message)
-            except Exception:  # pragma: no cover - UI callback must never throw
+            except Exception:  # pragma: no cover
                 pass
 
     _progress(0, "Closing Steam...")
@@ -455,7 +383,7 @@ async def install_lumacore(
                 total = int(r.headers.get("Content-Length", 0)) or asset["size"]
                 done = 0
                 with open(zip_path, "wb") as f:
-                    async for chunk in r.content.iter_chunked(1 << 19):  # 512 KB
+                    async for chunk in r.content.iter_chunked(1 << 19):
                         f.write(chunk)
                         done += len(chunk)
                         if total:
@@ -480,7 +408,7 @@ async def install_lumacore(
     _progress(97, "Prewarming pattern cache...")
     try:
         await _prewarm_patterns(steam_path, session)
-    except Exception as exc:  # best-effort
+    except Exception as exc:  # pragma: no cover
         logger.warning("Pattern prewarm failed: %s", exc)
 
     settings["lumacore_installed_version"] = tag
@@ -498,12 +426,10 @@ def uninstall_lumacore(
 ) -> Tuple[bool, str]:
     """Remove LumaCore DLLs and (optionally) every per-game artefact.
 
-    With ``complete=False`` only the four DLLs (+ lcoverlay.dll) are removed and
-    the cached version is cleared. With ``complete=True`` all stplug-in lua
-    files, depotcache manifests written by DepotManager and per-game ACFs are
-    purged too (delegated to lumacore_games.remove_all_games).
-
-    Proxy DLLs that were backed up at install time are restored.
+    With ``complete=False`` only the four DLLs (+ lcoverlay.dll) are removed.
+    With ``complete=True`` all stplug-in lua files, depotcache manifests and
+    per-game ACFs are purged too. Proxy DLLs backed up at install time are
+    restored.
     """
     if not steam_path.is_dir():
         return False, f"Steam path not found: {steam_path}"
@@ -515,7 +441,6 @@ def uninstall_lumacore(
             except Exception:  # pragma: no cover
                 pass
 
-    # Guard: skip kill_steam when there is nothing to remove.
     installed = bool(get_installed_version(settings, steam_path))
 
     if not installed and not complete:
@@ -523,8 +448,6 @@ def uninstall_lumacore(
         return True, "LumaCore is not installed. Nothing to uninstall."
 
     if not installed and complete:
-        # Orphan cleanup only: stplug-in/depotcache files are not locked by
-        # a running Steam, so skip kill_steam.
         logger.info(
             "uninstall_lumacore: LumaCore not installed, running orphan cleanup only."
         )

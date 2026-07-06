@@ -1,10 +1,4 @@
-"""Steam process management (Windows runtime only).
-
-Used before installing / uninstalling LumaCore DLLs, which are write-locked by
-``steam.exe`` while Steam is running. All functions are no-ops on non-Windows
-hosts so that the rest of the codebase can import this module safely from WSL
-during development.
-"""
+"""Steam process management (kill/is_running) for Windows runtime."""
 
 from __future__ import annotations
 
@@ -16,21 +10,17 @@ from typing import Tuple
 
 logger = logging.getLogger("DepotManager.SteamProcess")
 
-# Windows-only flag to prevent child processes from spawning a visible console
-# window. On non-Windows hosts the value is 0 (no-op, default creation flags).
 _NO_WINDOW = subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
 
-# Processes that may hold a handle on the DLLs we are about to replace.
-# steamwebhelper.exe spawns many children; killing the parent is enough.
 _STEAM_PROCESSES = ("steam.exe", "steamservice.exe", "steamwebhelper.exe")
 
 
+# --- PROCESS MANAGEMENT ---
 def is_windows() -> bool:
     return sys.platform == "win32"
 
 
 def _run(cmd: Tuple[str, ...], timeout: int = 10) -> int:
-    """Run a command without raising, returning the exit code (or -1 on error)."""
     try:
         proc = subprocess.run(
             cmd,
@@ -50,14 +40,11 @@ def is_steam_running() -> bool:
     """True if at least one Steam process is currently running."""
     if not is_windows():
         return False
-    # tasklist returns 0 (found) / 1 (not found). We filter by image name.
     for image in _STEAM_PROCESSES:
         rc = _run(
             ("tasklist", "/FI", f"IMAGENAME eq {image}", "/NH"),
             timeout=5,
         )
-        # tasklist exits 0 even on no match, so check the output string
-        # instead of relying on the return code.
         try:
             result = subprocess.run(
                 ("tasklist", "/FI", f"IMAGENAME eq {image}", "/NH", "/FO", "CSV"),
@@ -77,9 +64,8 @@ def is_steam_running() -> bool:
 def kill_steam(timeout: int = 15) -> bool:
     """Force-kill all Steam processes and wait for handles to be released.
 
-    Returns True if, at the end of the wait window, no Steam process is still
-    running. Returns False if something is still alive (DLLs may stay locked).
-    On non-Windows hosts this is a no-op returning True.
+    Returns True if no Steam process is still running at the end of the
+    wait window. On non-Windows hosts this is a no-op returning True.
     """
     if not is_windows():
         logger.debug("kill_steam called on non-Windows host; no-op.")
@@ -92,9 +78,6 @@ def kill_steam(timeout: int = 15) -> bool:
     for image in _STEAM_PROCESSES:
         _run(("taskkill", "/F", "/IM", image), timeout=8)
 
-    # Poll for handle release. taskkill /F is synchronous for the kernel-side
-    # teardown, but Steam child processes (webhelper) can take a moment to
-    # actually drop their file locks.
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
         if not is_steam_running():
