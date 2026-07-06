@@ -1,0 +1,21 @@
+# Normalize line endings: store LF in git, checkout CRLF on Windows
+* text=auto eol=crlf
+
+# Scripts meant for Linux/WSL stay LF
+*.sh text eol=lf
+
+# Binaries — never touch
+*.ico binary
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.dll binary
+*.exe binary
+*.zip binary
+*.rar binary
+*.7z binary
+*.manifest binary
+*.toml binary
+*.vdf binary
+*.acf binary
+*.lua binary

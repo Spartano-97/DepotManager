@@ -3,6 +3,7 @@
 
 # Keep .gitignore
 !.gitignore
+!.gitattributes
 
 # Keep GitHub-related files
 !README.md
