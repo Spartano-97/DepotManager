@@ -10,7 +10,7 @@ from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
 from typing import TYPE_CHECKING, Callable, Optional
 
-from . import lumacore_games, lumacore_setup
+from . import lumacore_games, lumacore_setup, steam_process
 from .api_client import APIAuthError, APIClient, APIHTTPError, APINetworkError
 from .config import APP_DIR, APPID_MAX, APPID_MIN, SOURCES, save_settings
 from .downloader import DownloadManager
@@ -50,6 +50,7 @@ class LumaCoreTab(ttk.Frame):
         self._setup_ui()
         self.after(50, self._refresh_steam_path_display)
         self.after(100, self._refresh_games_list)
+        self._auto_check_updates()
 
     def _setup_ui(self) -> None:
         steam_frame = ttk.LabelFrame(self, text=" Steam Installation ", padding=8)
@@ -76,31 +77,30 @@ class LumaCoreTab(ttk.Frame):
             row=0, column=0, columnspan=4, sticky="w", pady=(0, 5)
         )
 
-        ttk.Button(
-            lc_frame, text="Check for updates", command=self._on_check_update
-        ).grid(row=1, column=0, padx=2)
+        ttk.Button(lc_frame, text="Check updates", command=self._on_check_update).grid(
+            row=1, column=0, padx=2
+        )
         ttk.Button(lc_frame, text="Install / Update", command=self._on_install).grid(
             row=1, column=1, padx=2
         )
         ttk.Button(lc_frame, text="Uninstall", command=self._on_uninstall).grid(
             row=1, column=2, padx=2
         )
-
-        self.complete_uninstall_var = tk.BooleanVar(value=False)
-        ttk.Checkbutton(
-            lc_frame,
-            text="Complete uninstall (also remove all managed games)",
-            variable=self.complete_uninstall_var,
-        ).grid(row=2, column=0, columnspan=3, sticky="w", pady=(4, 0))
-
-        acf_btns = ttk.Frame(lc_frame)
-        acf_btns.grid(row=3, column=0, columnspan=3, sticky="w", pady=(4, 0))
+        ttk.Separator(lc_frame, orient="vertical").grid(
+            row=1, column=4, padx=10, sticky="ns"
+        )
+        ttk.Button(lc_frame, text="Restart Steam", command=self._on_restart_steam).grid(
+            row=1, column=5, padx=2
+        )
+        ttk.Separator(lc_frame, orient="vertical").grid(
+            row=1, column=6, padx=10, sticky="ns"
+        )
         ttk.Button(
-            acf_btns, text="Restore ACF Backups", command=self._on_restore_acf_backups
-        ).pack(side="left", padx=2)
+            lc_frame, text="Restore ACF Backups", command=self._on_restore_acf_backups
+        ).grid(row=1, column=7, padx=2)
         ttk.Button(
-            acf_btns, text="Clean ACF Backups", command=self._on_clean_acf_backups
-        ).pack(side="left", padx=2)
+            lc_frame, text="Clean ACF Backups", command=self._on_clean_acf_backups
+        ).grid(row=1, column=8, padx=2)
 
         games_frame = ttk.LabelFrame(self, text=" Managed Games ", padding=8)
         games_frame.pack(fill="both", expand=True, padx=4, pady=4)
@@ -109,15 +109,16 @@ class LumaCoreTab(ttk.Frame):
         self.games_tree = ttk.Treeview(
             games_frame, columns=columns, show="headings", selectmode="browse"
         )
-        for col, text, w in zip(
+        for col, text in zip(
             columns,
             ("AppID", "Name", "#Depots", "ACF"),
-            (90, 320, 60, 50),
         ):
             self.games_tree.heading(col, text=text)
-            self.games_tree.column(
-                col, width=w, anchor="w" if col == "name" else "center"
-            )
+        self.games_tree.column("appid", width=100, anchor="w", stretch=False)
+        self.games_tree.column("name", width=150, anchor="w")
+        self.games_tree.column("depots", width=100, anchor="e", stretch=False)
+        self.games_tree.column("acf", width=100, anchor="center", stretch=False)
+
         self.games_tree.pack(side="left", fill="both", expand=True)
 
         sb = ttk.Scrollbar(
@@ -207,6 +208,9 @@ class LumaCoreTab(ttk.Frame):
         self.log(f"[LumaCore] Steam path set manually: {path}")
 
     # --- LUMACORE COMPONENT ---
+    def _auto_check_updates(self) -> None:
+        self.app.run_async(self._check_update_async())
+
     def _on_check_update(self) -> None:
         self.app.run_async(self._check_update_async())
 
@@ -277,66 +281,59 @@ class LumaCoreTab(ttk.Frame):
         if steam is None:
             messagebox.showerror("Steam missing", "Set the Steam path first.")
             return
-        complete = self.complete_uninstall_var.get()
-        installed = self._is_lumacore_installed()
 
+        installed = self._is_lumacore_installed()
         try:
             games = lumacore_games.list_installed_games(steam)
         except Exception:
             games = []
         games_count = len(games)
 
-        if not complete:
-            warn = "This will close Steam and remove the LumaCore DLLs."
-            if not messagebox.askyesno("Uninstall LumaCore", warn + "\n\nContinue?"):
-                return
-            self.app.run_async(self._uninstall_async(steam, complete))
-            return
-
-        if installed and games_count == 0:
-            if not messagebox.askyesno(
-                "Uninstall LumaCore (complete)",
-                "No managed games found.\n\n"
-                "This will close Steam and remove the LumaCore DLLs only.\n"
-                "No game files or ACFs will be touched.\n\nContinue?",
-            ):
-                return
-        elif installed and games_count > 0:
+        if installed and games_count > 0:
             listing = "\n".join(f"  - {g['appid']}: {g['name']}" for g in games[:20])
             if games_count > 20:
                 listing += f"\n  ... and {games_count - 20} more"
-            if not messagebox.askyesno(
-                "Uninstall LumaCore (complete)",
-                f"This will close Steam, remove LumaCore AND every managed game\n"
-                f"({games_count} game(s) will be removed):\n\n{listing}\n\n"
+
+            msg = (
+                f"LumaCore Uninstall Options:\n\n"
+                f"Yes: Full Uninstall (Close Steam, remove DLLs AND remove {games_count} managed games)\n"
+                f"No: Normal Uninstall (Close Steam, remove DLLs only)\n"
+                f"Cancel: Abort Uninstall\n\n"
                 f"WARNING: If you have legitimately purchased any of these games\n"
                 f"AFTER injecting them via DepotManager, their install state (ACF)\n"
                 f"will be deleted. Steam will show them as not installed and you\n"
                 f"will need to re-download them. A backup of each ACF will be saved\n"
                 f"as <name>.depotmanager_bak in the same library folder, and can be\n"
-                f"restored via 'Restore ACF Backups'.\n\nContinue?",
-            ):
-                return
+                f"restored via 'Restore ACF Backups'.\n\n"
+                f"{listing}\n\n"
+                f"Continue?"
+            )
+            response = messagebox.askyesnocancel("Uninstall LumaCore", msg)
+        elif installed and games_count == 0:
+            msg = "No managed games found.\n\nThis will close Steam and remove the LumaCore DLLs only. No game files or ACFs will be touched.\n\nContinue?"
+            response = messagebox.askyesnocancel("Uninstall LumaCore", msg)
         elif not installed and games_count == 0:
             messagebox.showinfo(
                 "Nothing to do",
-                "LumaCore is not installed and no managed games were found.\n"
-                "There is nothing to uninstall or clean up.",
+                "LumaCore is not installed and no managed games were found.\nThere is nothing to uninstall or clean up.",
             )
             return
         else:
             listing = "\n".join(f"  - {g['appid']}: {g['name']}" for g in games[:20])
             if games_count > 20:
                 listing += f"\n  ... and {games_count - 20} more"
-            if not messagebox.askyesno(
-                "Clean up orphan game files",
+            msg = (
                 f"LumaCore is not installed, but {games_count} managed game(s)\n"
                 f"were found (left over from a previous install):\n\n{listing}\n\n"
                 f"Clean up their stplug-in lua, depotcache manifests and ACFs?\n"
-                f"(Steam will NOT be closed — these files are not locked.)",
-            ):
-                return
-        self.app.run_async(self._uninstall_async(steam, complete))
+                f"(Steam will NOT be closed — these files are not locked.)\n\nContinue?"
+            )
+            response = messagebox.askyesnocancel("Clean up orphan game files", msg)
+
+        if response is True:  # YES -> Full
+            self.app.run_async(self._uninstall_async(steam, complete=True))
+        elif response is False:  # NO -> Normal
+            self.app.run_async(self._uninstall_async(steam, complete=False))
 
     async def _uninstall_async(self, steam: Path, complete: bool) -> None:
         self.log("[LumaCore] Uninstalling... (Steam will be closed)")
@@ -362,6 +359,33 @@ class LumaCoreTab(ttk.Frame):
         else:
             messagebox.showwarning("Uninstall", message)
 
+    def _on_restart_steam(self) -> None:
+        if not messagebox.askyesno(
+            "Restart Steam",
+            "This will force-close Steam and restart it immediately.\n\nContinue?",
+        ):
+            return
+
+        self.log("[LumaCore] Restarting Steam...")
+        self.app.run_async(self._restart_steam_async())
+
+    async def _restart_steam_async(self) -> None:
+        try:
+            success = await asyncio.to_thread(
+                steam_process.restart_steam, self.settings
+            )
+            if success:
+                self.log("[LumaCore] Steam restarted successfully.")
+            else:
+                self.log("[LumaCore] Failed to restart Steam.")
+                messagebox.showerror(
+                    "Restart Failed",
+                    "Could not restart Steam. Ensure the path is correct.",
+                )
+        except Exception as exc:
+            self.log(f"[LumaCore] Restart error: {exc}")
+            messagebox.showerror("Error", str(exc))
+
     # --- MANAGED GAMES ---
     def _refresh_games_list(self) -> None:
         for row in self.games_tree.get_children():
@@ -382,7 +406,7 @@ class LumaCoreTab(ttk.Frame):
                     g["appid"],
                     g["name"],
                     g["depot_count"],
-                    "yes" if g["has_acf"] else "no",
+                    "PRESENT" if g["has_acf"] else "MISSING",
                 ),
             )
 
@@ -434,9 +458,9 @@ class LumaCoreTab(ttk.Frame):
         scope = messagebox.askyesnocancel(
             "Remove game",
             f"Remove game {appid}?\n\n"
-            f"Yes  = full (lua + manifests + ACF + depot keys)\n"
-            f"No   = basic (lua only)\n"
-            f"Cancel = abort",
+            f"Yes: Full Remove (lua + manifests + ACF + depot keys)\n"
+            f"No: Normal Remove (lua only)\n"
+            f"Cancel: Abort Remove",
         )
         if scope is None:
             return
@@ -784,7 +808,7 @@ class AddGameDialog(tk.Toplevel):
         for col, text, w in zip(
             columns,
             ("Depot ID", "Status", "Key", "Manifest File"),
-            (90, 110, 200, 200),
+            (100, 100, 200, 200),
         ):
             self.tree.heading(col, text=text)
             self.tree.column(col, width=w)
@@ -910,16 +934,14 @@ class AddGameDialog(tk.Toplevel):
         appid = self.appid_entry.get().strip()
         inv = {k: v for k, v in self.inventory.items() if k != appid}
         for did, info in sorted(inv.items()):
-            status = (
-                "✅ READY" if info["key"] and info["manifest_file"] else "⚠️ INCOMPLETE"
-            )
+            status = "READY" if info["key"] and info["manifest_file"] else "INCOMPLETE"
             manifest = (
-                info["manifest_file"].name if info["manifest_file"] else "Missing"
+                info["manifest_file"].name if info["manifest_file"] else "MISSING"
             )
             self.tree.insert(
                 "",
                 tk.END,
-                values=(did, status, info["key"] or "Missing", manifest),
+                values=(did, status, info["key"] or "MISSING", manifest),
             )
         self.confirm_btn.config(state="normal" if inv else "disabled")
 

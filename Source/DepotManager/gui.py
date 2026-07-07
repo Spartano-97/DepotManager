@@ -39,7 +39,7 @@ class App(tk.Tk):
     def __init__(self) -> None:
         super().__init__()
         self.title("DepotManager - HighSeas Edition")
-        self.geometry("950x780")
+        self.geometry("1200x900")
 
         icon_path = BUNDLE_DIR / "icon.ico"
         if icon_path.exists():
@@ -220,12 +220,14 @@ class App(tk.Tk):
             self.table_frame, columns=columns, show="headings", selectmode="none"
         )
         for col, text in zip(
-            columns, ["", "Depot ID", "Status", "Key", "Manifest File"]
+            columns, ["Check", "Depot ID", "Status", "Key", "Manifest File"]
         ):
             self.tree.heading(col, text=text)
-        self.tree.column("check", width=30, anchor="center", stretch=False)
-        self.tree.column("id", width=100)
-        self.tree.column("status", width=120)
+        self.tree.column("check", width=100, anchor="center", stretch=False)
+        self.tree.column("id", width=100, anchor="w", stretch=False)
+        self.tree.column("status", width=100, anchor="center", stretch=False)
+        self.tree.column("key", width=150, anchor="w")
+        self.tree.column("manifest", width=150, anchor="w")
 
         self.tree.bind("<ButtonRelease-1>", self._on_tree_click)
 
@@ -427,16 +429,14 @@ class App(tk.Tk):
 
         for did, info in sorted(self.inventory.items()):
             self.checked_depots[did] = False
-            status = (
-                "✅ READY" if info["key"] and info["manifest_file"] else "⚠️ INCOMPLETE"
-            )
+            status = "READY" if info["key"] and info["manifest_file"] else "INCOMPLETE"
             manifest_name = (
-                info["manifest_file"].name if info["manifest_file"] else "Missing"
+                info["manifest_file"].name if info["manifest_file"] else "MISSING"
             )
             self.tree.insert(
                 "",
                 tk.END,
-                values=("☐", did, status, info["key"] or "Missing", manifest_name),
+                values=("☐", did, status, info["key"] or "MISSING", manifest_name),
             )
 
     def _on_load_click(self) -> None:
@@ -570,16 +570,14 @@ class App(tk.Tk):
 
         for did, info in sorted(self.inventory.items()):
             self.checked_depots[did] = False
-            status = (
-                "✅ READY" if info["key"] and info["manifest_file"] else "⚠️ INCOMPLETE"
-            )
+            status = "READY" if info["key"] and info["manifest_file"] else "INCOMPLETE"
             manifest_name = (
-                info["manifest_file"].name if info["manifest_file"] else "Missing"
+                info["manifest_file"].name if info["manifest_file"] else "MISSING"
             )
             self.tree.insert(
                 "",
                 tk.END,
-                values=("☐", did, status, info["key"] or "Missing", manifest_name),
+                values=("☐", did, status, info["key"] or "MISSING", manifest_name),
             )
 
     # --- DOWNLOAD ---

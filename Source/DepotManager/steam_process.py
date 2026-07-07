@@ -88,3 +88,26 @@ def kill_steam(timeout: int = 15) -> bool:
     still_running = is_steam_running()
     logger.warning("Steam still running after %ds: %s", timeout, still_running)
     return not still_running
+
+
+def start_steam(settings: dict) -> bool:
+    """Launches Steam using the path provided in settings."""
+    from .steam_path import get_steam_path
+
+    steam_path = get_steam_path(settings)
+    if not steam_path or not (steam_path / "steam.exe").is_file():
+        logger.error("Steam executable not found at: %s", steam_path)
+        return False
+
+    logger.info("Starting Steam...")
+    _run((str(steam_path / "steam.exe"),), timeout=20)
+    return True
+
+
+def restart_steam(settings: dict) -> bool:
+    """Force-kills Steam and then restarts it."""
+    logger.info("Restarting Steam...")
+
+    kill_steam()
+    time.sleep(2)
+    return start_steam(settings)
