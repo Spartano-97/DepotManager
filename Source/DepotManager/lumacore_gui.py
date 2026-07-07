@@ -1063,7 +1063,7 @@ class AddGameDialog(tk.Toplevel):
         acf_path = library / f"appmanifest_{appid}.acf"
         state = read_acf(acf_path)
         installdir = state.get("installdir", str(appid)) if state else str(appid)
-        common_dir = library.parent / "common" / installdir
+        common_dir = library / "common" / installdir
         common_dir.mkdir(parents=True, exist_ok=True)
 
         selected = [did for did in self.inventory if did != appid]
