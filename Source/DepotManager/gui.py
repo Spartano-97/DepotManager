@@ -257,7 +257,7 @@ class App(tk.Tk):
         bottom_frame.pack(fill="both", padx=10, pady=5)
 
         self.console = scrolledtext.ScrolledText(
-            bottom_frame, height=12, bg="#1e1e1e", fg="#4CAF50", font=("Consolas", 10)
+            bottom_frame, height=20, bg="#1e1e1e", fg="#4CAF50", font=("Consolas", 10)
         )
         self.console.pack(fill="both", expand=True, pady=5)
 
@@ -626,7 +626,7 @@ class App(tk.Tk):
 
     def _on_stop_click(self) -> None:
         if self._inner_task is not None and not self._inner_task.done():
-            self.log_safe("⚠️ Stop requested, terminating processes...")
+            self.log_safe("Stop requested, terminating processes...")
             self.loop.call_soon_threadsafe(self._inner_task.cancel)
         else:
             messagebox.showinfo(

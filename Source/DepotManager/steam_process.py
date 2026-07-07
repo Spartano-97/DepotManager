@@ -101,8 +101,6 @@ def start_steam(settings: dict) -> bool:
 
     logger.info("Starting Steam from: %s", steam_path)
     try:
-        # Usiamo Popen per avviare Steam in background senza bloccare il thread,
-        # e impostiamo 'cwd' sulla cartella di Steam così che possa caricare le sue DLL senza crashare.
         subprocess.Popen(
             [str(steam_path / "steam.exe")],
             cwd=str(steam_path),
