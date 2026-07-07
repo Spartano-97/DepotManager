@@ -91,7 +91,7 @@ def kill_steam(timeout: int = 15) -> bool:
 
 
 def start_steam(settings: dict) -> bool:
-    """Launches Steam using the path provided in settings."""
+    """Launches Steam in the background with the correct working directory."""
     from .steam_path import get_steam_path
 
     steam_path = get_steam_path(settings)
@@ -99,9 +99,21 @@ def start_steam(settings: dict) -> bool:
         logger.error("Steam executable not found at: %s", steam_path)
         return False
 
-    logger.info("Starting Steam...")
-    _run((str(steam_path / "steam.exe"),), timeout=20)
-    return True
+    logger.info("Starting Steam from: %s", steam_path)
+    try:
+        # Usiamo Popen per avviare Steam in background senza bloccare il thread,
+        # e impostiamo 'cwd' sulla cartella di Steam così che possa caricare le sue DLL senza crashare.
+        subprocess.Popen(
+            [str(steam_path / "steam.exe")],
+            cwd=str(steam_path),
+            creationflags=_NO_WINDOW,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+        return True
+    except OSError as exc:
+        logger.error("Failed to launch Steam: %s", exc)
+        return False
 
 
 def restart_steam(settings: dict) -> bool:
