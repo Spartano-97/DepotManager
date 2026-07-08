@@ -4,8 +4,10 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 import re
 import shutil
+import stat
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
@@ -450,3 +452,86 @@ def list_all_acf_backups(steam_path: Path) -> List[Path]:
     """Return every ``*.depotmanager_bak`` path across all Steam libraries."""
     libraries = get_steam_libraries(steam_path)
     return _list_acf_backups_vdf(libraries)
+
+
+# --- STEAM CLOUD FIX ---
+def _force_delete_dir(path: Path) -> None:
+    def _onerror(func, p, excinfo):
+        try:
+            os.chmod(p, stat.S_IWRITE)
+            func(p)
+        except OSError:
+            pass
+
+    shutil.rmtree(path, onerror=_onerror)
+
+
+def apply_steam_cloud_fix(steam_path: Path, steam_id_32: str, appid: str) -> bool:
+    if not steam_id_32:
+        return False
+
+    target_path = steam_path / "userdata" / steam_id_32 / appid
+
+    if target_path.is_dir() and not target_path.is_symlink():
+        try:
+            _force_delete_dir(target_path)
+            logger.info("Removed existing Steam Cloud folder: %s", target_path)
+        except OSError as exc:
+            logger.warning("Cannot delete folder %s: %s", target_path, exc)
+            return False
+
+    if target_path.is_file():
+        try:
+            os.chmod(target_path, stat.S_IWRITE)
+            target_path.unlink()
+        except OSError as exc:
+            logger.warning("Cannot delete existing file %s: %s", target_path, exc)
+            return False
+
+    try:
+        target_path.parent.mkdir(parents=True, exist_ok=True)
+        target_path.write_text("", encoding="utf-8")
+        os.chmod(target_path, stat.S_IREAD)
+        logger.info("Steam Cloud fix applied: %s", target_path)
+        return True
+    except OSError as exc:
+        logger.error("Error creating Steam Cloud fix in %s: %s", target_path, exc)
+        return False
+
+
+def remove_steam_cloud_fix(steam_path: Path, steam_id_32: str, appid: str) -> bool:
+    if not steam_id_32:
+        return False
+    target_file = steam_path / "userdata" / steam_id_32 / appid
+    if target_file.is_file():
+        try:
+            os.chmod(target_file, stat.S_IWRITE)
+            target_file.unlink()
+            logger.info("Removed Steam Cloud dummy file: %s", target_file)
+            return True
+        except OSError as exc:
+            logger.warning("Cannot remove fix %s: %s", target_file, exc)
+            return False
+    return True
+
+
+def apply_steam_cloud_fix_all(steam_path: Path, steam_id_32: str) -> Tuple[int, int]:
+    games = list_installed_games(steam_path)
+    success, fail = 0, 0
+    for g in games:
+        if apply_steam_cloud_fix(steam_path, steam_id_32, g["appid"]):
+            success += 1
+        else:
+            fail += 1
+    return success, fail
+
+
+def remove_steam_cloud_fix_all(steam_path: Path, steam_id_32: str) -> Tuple[int, int]:
+    games = list_installed_games(steam_path)
+    success, fail = 0, 0
+    for g in games:
+        if remove_steam_cloud_fix(steam_path, steam_id_32, g["appid"]):
+            success += 1
+        else:
+            fail += 1
+    return success, fail

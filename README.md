@@ -57,8 +57,6 @@ Before running DepotManager, make sure the release bundle structure shown above 
 
 - **DepotDownloaderMod** — The underlying download engine.
   Repository: [SteamAutoCracks/DepotDownloaderMod](https://github.com/SteamAutoCracks/DepotDownloaderMod)
-- **LumaCore** — The proxy DLL injector for Steam.
-  Source: [KoriaPolis/LumaCore](https://github.com/KoriaPolis/LumaCore)
 - **For API mode**: An API key for at least one supported source:
   - Morrenus's API (HubcapManifest)
   - Ryuu's API
@@ -86,7 +84,7 @@ Before running DepotManager, make sure the release bundle structure shown above 
 3. **Select depots and download**
    - Click the checkbox column on each row to select depots, or use Select All / Deselect All.
    - Click **START DOWNLOAD** to begin. Output from DepotDownloaderMod will appear in real time.
-   - Click **STOP** at any time to cancel all running downloads.
+   - Click **STOP DOWNLOAD** at any time to cancel all running downloads.
 
 ### Method B: Download via Local Archive (offline, no API key)
 
@@ -107,9 +105,9 @@ The LumaCore Manager tab allows you to manage the LumaCore DLL injector for Stea
    - Use the **Restart Steam** button to quickly relaunch Steam after installation or updates.
 2. **Managed Games**
    - The app maintains a list of games injected with LumaCore.
-   - Use **Add Game...** to inject a new game (this handles Lua installation and ACF creation).
+   - Use **Add Game** to inject a new game (this handles Lua installation and ACF creation).
    - Use **Remove Selected** to clean up injected files.
-   - The **Restore ACF Backups** button allows you to recover `.acf` files from the automatic backups created during removal.
+   - The **Restore ACF Backups** button allows you to recover `.acf` files from the automatic backups created during LumaCore full removal.
 
 ## Configuration (`settings.json`)
 

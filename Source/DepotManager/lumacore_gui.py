@@ -69,38 +69,68 @@ class LumaCoreTab(ttk.Frame):
         )
         steam_frame.columnconfigure(1, weight=1)
 
+        ttk.Label(steam_frame, text="SteamID32:").grid(
+            row=1, column=0, sticky="w", pady=(5, 0)
+        )
+
+        id_container = ttk.Frame(steam_frame)
+        id_container.grid(row=1, column=1, columnspan=3, pady=(5, 0), sticky="w")
+
+        self.steam_id_var = tk.StringVar(value=self.settings.get("steam_id_32", ""))
+        self.steam_id_entry = ttk.Entry(
+            id_container, textvariable=self.steam_id_var, width=20
+        )
+        self.steam_id_entry.pack(side="left", padx=5)
+
+        ttk.Button(id_container, text="Save ID32", command=self._on_save_steam_id).pack(
+            side="left", padx=2
+        )
+
         lc_frame = ttk.LabelFrame(self, text=" LumaCore Component ", padding=8)
         lc_frame.pack(fill="x", padx=4, pady=4)
 
         self.lc_status_var = tk.StringVar(value="Installed: ?  |  Latest: ?")
-        ttk.Label(lc_frame, textvariable=self.lc_status_var).grid(
-            row=0, column=0, columnspan=4, sticky="w", pady=(0, 5)
+        ttk.Label(lc_frame, textvariable=self.lc_status_var).pack(
+            anchor="w", pady=(0, 8)
         )
 
-        ttk.Button(lc_frame, text="Check updates", command=self._on_check_update).grid(
-            row=1, column=0, padx=2
-        )
-        ttk.Button(lc_frame, text="Install / Update", command=self._on_install).grid(
-            row=1, column=1, padx=2
-        )
-        ttk.Button(lc_frame, text="Uninstall", command=self._on_uninstall).grid(
-            row=1, column=2, padx=2
-        )
-        ttk.Separator(lc_frame, orient="vertical").grid(
-            row=1, column=4, padx=10, sticky="ns"
-        )
-        ttk.Button(lc_frame, text="Restart Steam", command=self._on_restart_steam).grid(
-            row=1, column=5, padx=2
-        )
-        ttk.Separator(lc_frame, orient="vertical").grid(
-            row=1, column=6, padx=10, sticky="ns"
-        )
+        button_row = ttk.Frame(lc_frame)
+        button_row.pack(anchor="w", fill="x")
+
+        # 1. LumaCore Component
         ttk.Button(
-            lc_frame, text="Restore ACF Backups", command=self._on_restore_acf_backups
-        ).grid(row=1, column=7, padx=2)
+            button_row, text="Check updates", command=self._on_check_update
+        ).pack(side="left", padx=2)
+        ttk.Button(button_row, text="Install / Update", command=self._on_install).pack(
+            side="left", padx=2
+        )
+        ttk.Button(button_row, text="Uninstall", command=self._on_uninstall).pack(
+            side="left", padx=2
+        )
+
+        ttk.Separator(button_row, orient="vertical").pack(
+            side="left", fill="y", padx=10
+        )
+
+        # 2. Utility Steam
         ttk.Button(
-            lc_frame, text="Clean ACF Backups", command=self._on_clean_acf_backups
-        ).grid(row=1, column=8, padx=2)
+            button_row, text="Restart Steam", command=self._on_restart_steam
+        ).pack(side="left", padx=2)
+        ttk.Button(
+            button_row, text="Steam Cloud Fix", command=self._on_steam_cloud_fix
+        ).pack(side="left", padx=2)
+
+        ttk.Separator(button_row, orient="vertical").pack(
+            side="left", fill="y", padx=10
+        )
+
+        # 3. Backups ACF
+        ttk.Button(
+            button_row, text="Restore ACF Backups", command=self._on_restore_acf_backups
+        ).pack(side="left", padx=2)
+        ttk.Button(
+            button_row, text="Clean ACF Backups", command=self._on_clean_acf_backups
+        ).pack(side="left", padx=2)
 
         games_frame = ttk.LabelFrame(self, text=" Managed Games ", padding=8)
         games_frame.pack(fill="both", expand=True, padx=4, pady=4)
@@ -142,7 +172,7 @@ class LumaCoreTab(ttk.Frame):
             games_btns, text="Refresh List", command=self._refresh_games_list
         ).pack(side="left", padx=2)
 
-    # --- STEAM PATH ---
+    # --- STEAM PATH/ID32 ---
     def _current_steam_path(self) -> Optional[Path]:
         return get_steam_path(self.settings)
 
@@ -206,6 +236,17 @@ class LumaCoreTab(ttk.Frame):
         save_settings(self.settings)
         self._refresh_steam_path_display()
         self.log(f"[LumaCore] Steam path set manually: {path}")
+
+    def _on_save_steam_id(self) -> None:
+        val = self.steam_id_var.get().strip()
+        if val and not val.isdigit():
+            messagebox.showerror("Error", "The SteamID32 must be numeric.")
+            return
+
+        self.settings["steam_id_32"] = val
+        save_settings(self.settings)
+        self.log(f"[LumaCore] SteamID32 saved: {val or '(cleared)'}")
+        messagebox.showinfo("Saved", "SteamID32 saved successfully.")
 
     # --- LUMACORE COMPONENT ---
     def _auto_check_updates(self) -> None:
@@ -477,11 +518,96 @@ class LumaCoreTab(ttk.Frame):
             self.log(f"[LumaCore] Removing game {appid} (scope={scope_str})...")
         try:
             ok, message = lumacore_games.remove_game(steam, appid, scope=scope_str)
+            if ok:
+                steam_id = self.settings.get("steam_id_32", "").strip()
+                if steam_id:
+                    lumacore_games.remove_steam_cloud_fix(steam, steam_id, appid)
         except Exception as exc:
             self.log(f"[LumaCore] Remove error: {exc}")
             return
         self.log(f"[LumaCore] {message}")
         self._refresh_games_list()
+
+    # --- STEAM CLOUD FIX ---
+    def _on_steam_cloud_fix(self) -> None:
+        steam = self._current_steam_path()
+        if steam is None:
+            messagebox.showerror("Steam missing", "Set the Steam path first.")
+            return
+
+        steam_id = self.settings.get("steam_id_32", "").strip()
+        if not steam_id:
+            messagebox.showwarning(
+                "SteamID32 Missing",
+                "Please enter your SteamID32 in the field under Steam Installation before using this tool.",
+            )
+            return
+
+        msg = (
+            f"Steam Cloud Fix Management for profile: {steam_id}\n\n"
+            "This utility prevents Steam Cloud sync errors and client lockups for games injected with LumaCore.\n\n"
+            "Yes: Activate Fix (Applied to ALL managed games)\n"
+            "No: Deactivate Fix (Clean up and remove fix for SteamID32 User)\n"
+            "Cancel: Abort operation\n\n"
+            "Would you like to proceed?"
+        )
+        response = messagebox.askyesnocancel("Steam Cloud Fix", msg)
+
+        if response is True:
+            self.app.run_async(
+                self._steam_cloud_fix_async(steam, steam_id, activate=True)
+            )
+        elif response is False:
+            self.app.run_async(
+                self._steam_cloud_fix_async(steam, steam_id, activate=False)
+            )
+
+    async def _steam_cloud_fix_async(
+        self, steam: Path, steam_id: str, activate: bool
+    ) -> None:
+        if activate:
+            self.log(
+                f"[LumaCore] Bulk-activating Steam Cloud Fix for user {steam_id}..."
+            )
+            try:
+                success, fail = await asyncio.to_thread(
+                    lumacore_games.apply_steam_cloud_fix_all, steam, steam_id
+                )
+                self.log(
+                    f"[LumaCore] Steam Cloud Fix: {success} applied, {fail} failed."
+                )
+                if fail > 0:
+                    messagebox.showwarning(
+                        "Completed with Warnings",
+                        f"Fix applied successfully to {success} games.\n"
+                        f"Could not apply to {fail} games. Check depot_manager.log for details.",
+                    )
+                else:
+                    messagebox.showinfo(
+                        "Success",
+                        f"Steam Cloud Fix applied successfully for all {success} managed games!",
+                    )
+            except Exception as exc:
+                self.log(f"[LumaCore] Error applying Steam Cloud Fix: {exc}")
+                messagebox.showerror("Error", str(exc))
+        else:
+            self.log(
+                f"[LumaCore] Bulk-deactivating Steam Cloud Fix for user {steam_id}..."
+            )
+            try:
+                success, fail = await asyncio.to_thread(
+                    lumacore_games.remove_steam_cloud_fix_all, steam, steam_id
+                )
+                self.log(
+                    f"[LumaCore] Steam Cloud Fix: {success} removed, {fail} failed."
+                )
+                messagebox.showinfo(
+                    "Success",
+                    f"Steam Cloud Fix disabled and cleaned for all {success} managed games.",
+                )
+            except Exception as exc:
+                self.log(f"[LumaCore] Error removing Steam Cloud Fix: {exc}")
+                messagebox.showerror("Error", str(exc))
 
     # --- ACF BACKUPS ---
     def _on_restore_acf_backups(self) -> None:
