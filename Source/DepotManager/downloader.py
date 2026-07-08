@@ -78,20 +78,20 @@ class DownloadManager:
                 ]
 
                 if cancelled:
-                    self.log_callback("--- 🛑 OPERATION CANCELLED BY USER ---")
+                    self.log_callback("--- OPERATION CANCELLED BY USER ---")
                     raise asyncio.CancelledError()
                 elif errors:
-                    self.log_callback(f"--- ⚠️ COMPLETED WITH {len(errors)} ERRORS ---")
+                    self.log_callback(f"--- COMPLETED WITH {len(errors)} ERRORS ---")
                     raise RuntimeError(
                         f"{len(errors)} depots encountered errors during download."
                     )
                 else:
-                    self.log_callback("--- ✅ ALL SELECTED DOWNLOADS COMPLETED ---")
+                    self.log_callback("--- ALL SELECTED DOWNLOADS COMPLETED ---")
 
             except asyncio.CancelledError:
                 for t in tasks:
                     t.cancel()
-                self.log_callback("--- 🛑 DOWNLOAD OPERATION CANCELLED ---")
+                self.log_callback("--- DOWNLOAD OPERATION CANCELLED ---")
                 raise
         finally:
             keys_path = Path(KEYS_FILE)
@@ -113,7 +113,7 @@ class DownloadManager:
         info = self.inventory.get(str(did))
         if not info or not info["manifest_file"]:
             logger.warning("Depot %s: no manifest file, skipping.", did)
-            self.log_callback(f"⚠️ Depot {did}: Missing manifest file, skipping.")
+            self.log_callback(f"Depot {did}: Missing manifest file, skipping.")
             return
 
         manifest_src: Path = info["manifest_file"]
@@ -131,7 +131,7 @@ class DownloadManager:
                 did,
                 manifest_src.name,
             )
-            self.log_callback(f"⚠️ Depot {did}: Unparsable manifest name, skipping.")
+            self.log_callback(f"Depot {did}: Unparsable manifest name, skipping.")
             return
 
         manifest_id = match.group(1)
@@ -203,7 +203,7 @@ class DownloadManager:
                     except asyncio.TimeoutError:
                         process.kill()
                         logger.warning("Depot %s: process forcefully killed.", did)
-                self.log_callback(f"🛑 Stopped Depot {did}")
+                self.log_callback(f"Stopped Depot {did}")
                 logger.info("Depot %s cancelled by user.", did)
                 raise
 

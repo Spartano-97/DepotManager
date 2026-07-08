@@ -129,7 +129,7 @@ class LumaCoreTab(ttk.Frame):
 
         games_btns = ttk.Frame(self)
         games_btns.pack(fill="x", padx=4, pady=(2, 4))
-        ttk.Button(games_btns, text="Add Game...", command=self._on_add_game).pack(
+        ttk.Button(games_btns, text="Add Game", command=self._on_add_game).pack(
             side="left", padx=2
         )
         ttk.Button(
@@ -249,10 +249,10 @@ class LumaCoreTab(ttk.Frame):
         if not messagebox.askyesno(
             "Install LumaCore",
             f"This will:\n"
-            f"  - close Steam\n"
-            f"  - download the latest LumaCore from GitHub\n"
-            f"  - place 4 DLLs in:\n     {steam}\n"
-            f"  - restart Steam manually afterwards\n\nContinue?",
+            f"  - Close Steam\n"
+            f"  - Download the latest LumaCore from GitHub\n"
+            f"  - Place LumaCore DLLs in:\n     {steam}\n\n"
+            f"Restart Steam manually afterwards\n\nContinue?",
         ):
             return
         self.app.run_async(self._install_async(steam))
