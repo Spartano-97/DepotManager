@@ -1,4 +1,5 @@
 **DISCLAIMER:** The LumaCore Manager functionality in this application is provided for educational purposes only. The author assumes no responsibility for any issues, damages, or consequences resulting from the use of the LumaCore component or its associated DLLs.
+You can find the source code for LumaCore and its Docs [here](https://github.com/Midrags/SFF/tree/main/LumaCore).
 
 # DepotManager
 
