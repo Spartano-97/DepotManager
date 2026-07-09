@@ -108,7 +108,6 @@ The LumaCore Manager tab allows you to manage the LumaCore DLL injector for Stea
    - The app maintains a list of games injected with LumaCore.
    - Use **Add Game** to inject a new game (this handles Lua installation and ACF creation).
    - Use **Remove Selected** to clean up injected files.
-   - The **Restore ACF Backups** button allows you to recover `.acf` files from the automatic backups created during LumaCore full removal.
 
 ## Configuration (`settings.json`)
 

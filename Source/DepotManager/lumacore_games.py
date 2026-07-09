@@ -39,15 +39,6 @@ from .vdf_io import (
     remove_depot_keys,
     write_acf,
 )
-from .vdf_io import (
-    clean_acf_backups as _clean_acf_backups_vdf,
-)
-from .vdf_io import (
-    list_acf_backups as _list_acf_backups_vdf,
-)
-from .vdf_io import (
-    restore_acf_backup as _restore_acf_backup_vdf,
-)
 
 logger = logging.getLogger("DepotManager.LumaCoreGames")
 
@@ -416,48 +407,6 @@ def remove_all_games(steam_path: Path) -> int:
         except Exception as exc:  # pragma: no cover
             logger.warning("Failed to remove game %s: %s", g["appid"], exc)
     return len(games)
-
-
-# --- ACF BACKUP MANAGEMENT ---
-def restore_acf_backups_selected(
-    steam_path: Path, backup_paths: List[Path]
-) -> Tuple[int, int]:
-    """Restore the given ACF backups (selected by the user in the GUI).
-
-    Returns ``(restored, skipped)`` counts. Skipped when the ACF already
-    exists (legitimate re-install via Steam).
-    """
-    restored = 0
-    skipped = 0
-    for backup in backup_paths:
-        target_name = backup.name[: -len(".depotmanager_bak")]
-        target_acf = backup.parent / target_name
-        if _restore_acf_backup_vdf(target_acf):
-            restored += 1
-        else:
-            skipped += 1
-    logger.info(
-        "ACF restore: %d restored, %d skipped (of %d selected).",
-        restored,
-        skipped,
-        len(backup_paths),
-    )
-    return restored, skipped
-
-
-def clean_all_acf_backups(steam_path: Path) -> int:
-    """Delete every ``*.depotmanager_bak`` across all Steam libraries.
-
-    Returns the number of backups removed.
-    """
-    libraries = get_steam_libraries(steam_path)
-    return _clean_acf_backups_vdf(libraries)
-
-
-def list_all_acf_backups(steam_path: Path) -> List[Path]:
-    """Return every ``*.depotmanager_bak`` path across all Steam libraries."""
-    libraries = get_steam_libraries(steam_path)
-    return _list_acf_backups_vdf(libraries)
 
 
 # --- STEAM CLOUD FIX ---

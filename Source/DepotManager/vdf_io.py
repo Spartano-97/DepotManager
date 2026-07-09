@@ -1,4 +1,4 @@
-"""VDF/ACF read-write helpers with backup management."""
+"""VDF/ACF read-write helpers."""
 
 from __future__ import annotations
 
@@ -264,17 +264,9 @@ def read_acf_depots(acf_path: Path) -> Dict[str, str]:
 
 
 def remove_acf(acf_path: Path) -> bool:
-    """Delete an ACF file, keeping a ``.depotmanager_bak`` backup first.
-
-    Returns True if deleted or already absent.
-    """
+    """Delete an ACF file. Returns True if deleted or already absent."""
     if not acf_path.is_file():
         return True
-    try:
-        shutil.copy2(acf_path, acf_path.with_name(acf_path.name + ".depotmanager_bak"))
-        logger.debug("ACF backup saved: %s.depotmanager_bak", acf_path.name)
-    except OSError as exc:
-        logger.warning("Cannot back up ACF %s: %s", acf_path, exc)
     try:
         acf_path.unlink()
         logger.info("Removed ACF %s", acf_path.name)
@@ -304,58 +296,3 @@ def update_acf_size(
     except OSError as exc:
         logger.error("Cannot patch ACF %s: %s", acf_path, exc)
         return False
-
-
-# --- ACF BACKUP MANAGEMENT ---
-ACF_BACKUP_SUFFIX = ".depotmanager_bak"
-
-
-def restore_acf_backup(acf_path: Path) -> bool:
-    """Restore an ACF from its ``.depotmanager_bak`` backup.
-
-    Safety: if the ACF already exists (e.g. the user re-installed the game
-    legitimately via Steam), the backup is NOT applied. Returns True if
-    restored, False if skipped or no backup available.
-    """
-    backup = acf_path.with_name(acf_path.name + ACF_BACKUP_SUFFIX)
-    if not backup.is_file():
-        return False
-    if acf_path.is_file():
-        logger.info(
-            "Restore skipped: ACF already present for %s (kept legitimate state).",
-            acf_path.name,
-        )
-        return False
-    try:
-        shutil.copy2(backup, acf_path)
-        logger.info("Restored ACF from backup: %s", acf_path.name)
-        return True
-    except OSError as exc:
-        logger.warning("Cannot restore ACF %s from backup: %s", acf_path, exc)
-        return False
-
-
-def list_acf_backups(libraries: List[Path]) -> List[Path]:
-    """Find every ``*.depotmanager_bak`` across the given Steam libraries."""
-    backups: List[Path] = []
-    for lib in libraries:
-        if not lib.is_dir():
-            continue
-        backups.extend(sorted(lib.glob("*" + ACF_BACKUP_SUFFIX)))
-    return backups
-
-
-def clean_acf_backups(libraries: List[Path]) -> int:
-    """Delete every ``*.depotmanager_bak`` across the given libraries.
-
-    Returns the number of backups actually removed.
-    """
-    removed = 0
-    for backup in list_acf_backups(libraries):
-        try:
-            backup.unlink()
-            removed += 1
-            logger.debug("Deleted ACF backup: %s", backup.name)
-        except OSError as exc:
-            logger.warning("Cannot delete ACF backup %s: %s", backup, exc)
-    return removed
