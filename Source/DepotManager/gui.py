@@ -295,14 +295,14 @@ class App(tk.Tk):
     def _save_api_key(self) -> None:
         key = self.api_key_entry.get().strip()
         if len(key) < 10:
-            messagebox.showwarning("Warning", "The API Key seems too short.")
+            messagebox.showwarning("API Key Too Short", "The API key is too short.")
             return
         source_key = self._get_selected_source_key()
         key_field = SOURCES[source_key]["key_field"]
         self.settings[key_field] = key
         self.settings["selected_source"] = source_key
         save_settings(self.settings)
-        messagebox.showinfo("Success", "Settings saved.")
+        messagebox.showinfo("Saved", "Settings saved successfully.")
 
     def _on_tree_click(self, event: tk.Event) -> None:
         region = self.tree.identify_region(event.x, event.y)
@@ -347,16 +347,16 @@ class App(tk.Tk):
         )
 
         if not appid_str.isdigit():
-            messagebox.showerror("Error", "Invalid AppID: must be numeric.")
+            messagebox.showerror("Invalid AppID", "AppID must be numeric.")
             return
         appid_int = int(appid_str)
         if not (APPID_MIN <= appid_int <= APPID_MAX):
             messagebox.showerror(
-                "Error", f"AppID out of range ({APPID_MIN} \u2013 {APPID_MAX})."
+                "Invalid AppID", f"AppID out of range ({APPID_MIN} \u2013 {APPID_MAX})."
             )
             return
         if len(key) < 10:
-            messagebox.showerror("Error", "Missing or invalid API Key.")
+            messagebox.showerror("Missing API Key", "Missing or invalid API key.")
             return
 
         self.fetch_btn.config(state="disabled")
@@ -391,7 +391,7 @@ class App(tk.Tk):
             self.after(
                 0,
                 lambda: messagebox.showerror(
-                    "Auth Error", "API Key rejected by the server."
+                    "Auth Error", "API key rejected by the server."
                 ),
             )
         except APIHTTPError as exc:
@@ -405,12 +405,17 @@ class App(tk.Tk):
             self.after(
                 0,
                 lambda: messagebox.showerror(
-                    "Network Error", f"Connection failed:\n{exc}"
+                    "Network Error",
+                    f"Connection failed:\n{exc}\n\nSee depot_manager.log for details.",
                 ),
             )
         except Exception as exc:
             self.after(
-                0, lambda: messagebox.showerror("Error", f"Unexpected error:\n{exc}")
+                0,
+                lambda: messagebox.showerror(
+                    "Unexpected Error",
+                    f"Unexpected error:\n{exc}\n\nSee depot_manager.log for details.",
+                ),
             )
         finally:
             self.after(0, lambda: self.fetch_btn.config(state="normal"))
@@ -491,7 +496,8 @@ class App(tk.Tk):
             self.after(
                 0,
                 lambda: messagebox.showerror(
-                    "Error", f"Failed to load archive:\n{exc}"
+                    "Load Archive Failed",
+                    f"Failed to load archive:\n{exc}\n\nSee depot_manager.log for details.",
                 ),
             )
         finally:
@@ -584,7 +590,7 @@ class App(tk.Tk):
     def _on_download_click(self) -> None:
         if self._inner_task is not None and not self._inner_task.done():
             messagebox.showwarning(
-                "Download in progress",
+                "Download In Progress",
                 "A download is already running. Stop it first before starting a new one.",
             )
             return
@@ -595,25 +601,27 @@ class App(tk.Tk):
         )
 
         if not exe_path.exists():
-            messagebox.showerror("Exec Error", f"Executable not found: {exe_path}")
+            messagebox.showerror(
+                "Executable Not Found", f"Executable not found:\n{exe_path}"
+            )
             return
 
         selected_ids = [did for did, checked in self.checked_depots.items() if checked]
         if not selected_ids:
             messagebox.showwarning(
-                "Warning", "Select at least one depot using the checkboxes."
+                "No Depot Selected", "Select at least one depot using the checkboxes."
             )
             return
 
         app_id = self.appid_entry.get().strip()
         if not app_id.isdigit():
-            messagebox.showerror("Error", "Invalid AppID: must be numeric.")
+            messagebox.showerror("Invalid AppID", "AppID must be numeric.")
             return
 
         appid_int = int(app_id)
         if not (APPID_MIN <= appid_int <= APPID_MAX):
             messagebox.showerror(
-                "Error", f"AppID out of range ({APPID_MIN} \u2013 {APPID_MAX})."
+                "Invalid AppID", f"AppID out of range ({APPID_MIN} \u2013 {APPID_MAX})."
             )
             return
 
@@ -630,7 +638,7 @@ class App(tk.Tk):
             self.loop.call_soon_threadsafe(self._inner_task.cancel)
         else:
             messagebox.showinfo(
-                "No download in progress",
+                "No Download In Progress",
                 "There is no active download to stop.",
             )
 
@@ -658,12 +666,12 @@ class App(tk.Tk):
         try:
             await downloader.run_downloads(selected_ids, exe_path, app_id)
             self.after(
-                0, lambda: messagebox.showinfo("Completed", "All downloads completed.")
+                0, lambda: messagebox.showinfo("Done", "All downloads completed.")
             )
         except asyncio.CancelledError:
             self.after(
                 0,
-                lambda: messagebox.showwarning(
+                lambda: messagebox.showinfo(
                     "Cancelled", "Downloads successfully cancelled."
                 ),
             )
@@ -671,8 +679,8 @@ class App(tk.Tk):
             self.after(
                 0,
                 lambda: messagebox.showwarning(
-                    "Completed with errors",
-                    "Depot download encountered errors. Check the log for details.",
+                    "Completed With Errors",
+                    "Depot download encountered errors. See depot_manager.log for details.",
                 ),
             )
         finally:

@@ -108,7 +108,7 @@ class LumaCoreTab(ttk.Frame):
 
         # 1. LumaCore Component
         ttk.Button(
-            button_row, text="Check updates", command=self._on_check_update
+            button_row, text="Check For Updates", command=self._on_check_update
         ).pack(side="left", padx=2)
         ttk.Button(button_row, text="Install / Update", command=self._on_install).pack(
             side="left", padx=2
@@ -197,7 +197,7 @@ class LumaCoreTab(ttk.Frame):
             "Use 'Install / Update' in the LumaCore Component section first."
         )
         messagebox.showwarning(
-            "LumaCore not installed",
+            "LumaCore Not Installed",
             "LumaCore is not installed in your Steam directory.\n\n"
             "This action requires the LumaCore DLLs to be present in the Steam "
             "folder.\n\n"
@@ -220,7 +220,7 @@ class LumaCoreTab(ttk.Frame):
         else:
             self.log("[LumaCore] Steam not found. Use Browse... to set it manually.")
             messagebox.showwarning(
-                "Steam not found",
+                "Steam Not Found",
                 "Could not locate Steam automatically. Please use Browse... to select "
                 "your Steam installation directory (the one containing steam.exe).",
             )
@@ -235,7 +235,7 @@ class LumaCoreTab(ttk.Frame):
         path = Path(choice)
         if not (path / "steam.exe").is_file() and not (path / "steamapps").is_dir():
             if not messagebox.askyesno(
-                "Unlikely Steam path",
+                "Unlikely Steam Path",
                 f"The selected folder does not look like a Steam installation\n"
                 f"(no steam.exe or steamapps/ found):\n\n  {path}\n\n"
                 f"Use it anyway?",
@@ -251,7 +251,7 @@ class LumaCoreTab(ttk.Frame):
         api_key = self.steam_api_key_var.get().strip()
 
         if steam_id and not steam_id.isdigit():
-            messagebox.showerror("Error", "The SteamID32 must be numeric.")
+            messagebox.showerror("Invalid SteamID32", "The SteamID32 must be numeric.")
             return
 
         self.settings["steam_id_32"] = steam_id
@@ -300,7 +300,7 @@ class LumaCoreTab(ttk.Frame):
     def _on_install(self) -> None:
         steam = self._current_steam_path()
         if steam is None:
-            messagebox.showerror("Steam missing", "Set the Steam path first.")
+            messagebox.showerror("Steam Missing", "Set the Steam path first.")
             return
         if not messagebox.askyesno(
             "Install LumaCore",
@@ -308,7 +308,7 @@ class LumaCoreTab(ttk.Frame):
             f"  - Close Steam\n"
             f"  - Download the latest LumaCore from GitHub\n"
             f"  - Place LumaCore DLLs in:\n     {steam}\n\n"
-            f"Restart Steam manually afterwards\n\nContinue?",
+            f"Restart Steam manually afterwards.\n\nContinue?",
         ):
             return
         self.app.run_async(self._install_async(steam))
@@ -330,12 +330,12 @@ class LumaCoreTab(ttk.Frame):
         if ok:
             await self._check_update_async()
         else:
-            messagebox.showerror("Install failed", message)
+            messagebox.showerror("Install Failed", message)
 
     def _on_uninstall(self) -> None:
         steam = self._current_steam_path()
         if steam is None:
-            messagebox.showerror("Steam missing", "Set the Steam path first.")
+            messagebox.showerror("Steam Missing", "Set the Steam path first.")
             return
 
         installed = self._is_lumacore_installed()
@@ -366,11 +366,17 @@ class LumaCoreTab(ttk.Frame):
             )
             response = messagebox.askyesnocancel("Uninstall LumaCore", msg)
         elif installed and games_count == 0:
-            msg = "No managed games found.\n\nThis will close Steam and remove the LumaCore DLLs only. No game files or ACFs will be touched.\n\nContinue?"
+            msg = (
+                "No managed games found.\n\n"
+                "Yes: Uninstall LumaCore (Close Steam, remove DLLs)\n"
+                "No: Same as Yes (no managed games to remove)\n"
+                "Cancel: Abort Uninstall\n\n"
+                "Continue?"
+            )
             response = messagebox.askyesnocancel("Uninstall LumaCore", msg)
         elif not installed and games_count == 0:
             messagebox.showinfo(
-                "Nothing to do",
+                "Nothing To Do",
                 "LumaCore is not installed and no managed games were found.\nThere is nothing to uninstall or clean up.",
             )
             return
@@ -381,10 +387,12 @@ class LumaCoreTab(ttk.Frame):
             msg = (
                 f"LumaCore is not installed, but {games_count} managed game(s)\n"
                 f"were found (left over from a previous install):\n\n{listing}\n\n"
-                f"Clean up their stplug-in lua, depotcache manifests and ACFs?\n"
+                f"Yes: Full Cleanup (Remove lua + manifests + ACF + depot keys)\n"
+                f"No: Skip Game Cleanup (Only reset LumaCore files)\n"
+                f"Cancel: Abort\n\n"
                 f"(Steam will NOT be closed — these files are not locked.)\n\nContinue?"
             )
-            response = messagebox.askyesnocancel("Clean up orphan game files", msg)
+            response = messagebox.askyesnocancel("Clean Up Orphan Game Files", msg)
 
         if response is True:  # YES -> Full
             self.app.run_async(self._uninstall_async(steam, complete=True))
@@ -413,7 +421,7 @@ class LumaCoreTab(ttk.Frame):
             self.lc_status_var.set("Installed: not installed  |  Latest: ?")
             self._refresh_games_list()
         else:
-            messagebox.showwarning("Uninstall", message)
+            messagebox.showerror("Uninstall Failed", message)
 
     def _on_restart_steam(self) -> None:
         if not messagebox.askyesno(
@@ -440,7 +448,10 @@ class LumaCoreTab(ttk.Frame):
                 )
         except Exception as exc:
             self.log(f"[LumaCore] Restart error: {exc}")
-            messagebox.showerror("Error", str(exc))
+            messagebox.showerror(
+                "Restart Failed",
+                f"Failed to restart Steam:\n{exc}\n\nSee depot_manager.log for details.",
+            )
 
     # --- MANAGED GAMES ---
     def _refresh_games_list(self) -> None:
@@ -475,7 +486,7 @@ class LumaCoreTab(ttk.Frame):
     def _on_add_game(self) -> None:
         steam = self._current_steam_path()
         if steam is None:
-            messagebox.showerror("Steam missing", "Set the Steam path first.")
+            messagebox.showerror("Steam Missing", "Set the Steam path first.")
             return
         if not self._is_lumacore_installed():
             self._warn_lumacore_not_installed("add a game")
@@ -491,7 +502,9 @@ class LumaCoreTab(ttk.Frame):
     def _on_update_game(self) -> None:
         appid = self._selected_appid()
         if appid is None:
-            messagebox.showinfo("Update game", "Select a game in the list first.")
+            messagebox.showwarning(
+                "No Game Selected", "Select a game in the list first."
+            )
             return
         steam = self._current_steam_path()
         if steam is None:
@@ -509,10 +522,12 @@ class LumaCoreTab(ttk.Frame):
     def _on_remove_game(self) -> None:
         appid = self._selected_appid()
         if appid is None:
-            messagebox.showinfo("Remove game", "Select a game in the list first.")
+            messagebox.showwarning(
+                "No Game Selected", "Select a game in the list first."
+            )
             return
         scope = messagebox.askyesnocancel(
-            "Remove game",
+            "Remove Game",
             f"Remove game {appid}?\n\n"
             f"Yes: Full Remove (lua + manifests + ACF + depot keys)\n"
             f"No: Normal Remove (lua only)\n"
@@ -559,7 +574,7 @@ class LumaCoreTab(ttk.Frame):
     def _on_steam_cloud_fix(self) -> None:
         steam = self._current_steam_path()
         if steam is None:
-            messagebox.showerror("Steam missing", "Set the Steam path first.")
+            messagebox.showerror("Steam Missing", "Set the Steam path first.")
             return
 
         steam_id = self.settings.get("steam_id_32", "").strip()
@@ -576,7 +591,7 @@ class LumaCoreTab(ttk.Frame):
             "Yes: Activate Fix (Applied to ALL managed games)\n"
             "No: Deactivate Fix (Clean up and remove fix for SteamID32 User)\n"
             "Cancel: Abort operation\n\n"
-            "Would you like to proceed?"
+            "Continue?"
         )
         response = messagebox.askyesnocancel("Steam Cloud Fix", msg)
 
@@ -605,18 +620,21 @@ class LumaCoreTab(ttk.Frame):
                 )
                 if fail > 0:
                     messagebox.showwarning(
-                        "Completed with Warnings",
+                        "Completed With Warnings",
                         f"Fix applied successfully to {success} games.\n"
-                        f"Could not apply to {fail} games. Check depot_manager.log for details.",
+                        f"Could not apply to {fail} games. See depot_manager.log for details.",
                     )
                 else:
                     messagebox.showinfo(
-                        "Success",
-                        f"Steam Cloud Fix applied successfully for all {success} managed games!",
+                        "Done",
+                        f"Steam Cloud Fix applied successfully for all {success} managed games.",
                     )
             except Exception as exc:
                 self.log(f"[LumaCore] Error applying Steam Cloud Fix: {exc}")
-                messagebox.showerror("Error", str(exc))
+                messagebox.showerror(
+                    "Steam Cloud Fix Failed",
+                    f"Failed to apply Steam Cloud Fix:\n{exc}\n\nSee depot_manager.log for details.",
+                )
         else:
             self.log(
                 f"[LumaCore] Bulk-deactivating Steam Cloud Fix for user {steam_id}..."
@@ -629,18 +647,21 @@ class LumaCoreTab(ttk.Frame):
                     f"[LumaCore] Steam Cloud Fix: {success} removed, {fail} failed."
                 )
                 messagebox.showinfo(
-                    "Success",
+                    "Done",
                     f"Steam Cloud Fix disabled and cleaned for all {success} managed games.",
                 )
             except Exception as exc:
                 self.log(f"[LumaCore] Error removing Steam Cloud Fix: {exc}")
-                messagebox.showerror("Error", str(exc))
+                messagebox.showerror(
+                    "Steam Cloud Fix Failed",
+                    f"Failed to remove Steam Cloud Fix:\n{exc}\n\nSee depot_manager.log for details.",
+                )
 
     # --- ACF BACKUPS ---
     def _on_restore_acf_backups(self) -> None:
         steam = self._current_steam_path()
         if steam is None:
-            messagebox.showerror("Steam missing", "Set the Steam path first.")
+            messagebox.showerror("Steam Missing", "Set the Steam path first.")
             return
         try:
             backups = lumacore_games.list_all_acf_backups(steam)
@@ -649,7 +670,7 @@ class LumaCoreTab(ttk.Frame):
             return
         if not backups:
             messagebox.showinfo(
-                "No ACF backups",
+                "No ACF Backups",
                 "No ACF backups were found in any Steam library.\n"
                 "Backups are created automatically when a managed game is removed.",
             )
@@ -661,7 +682,7 @@ class LumaCoreTab(ttk.Frame):
     def _on_clean_acf_backups(self) -> None:
         steam = self._current_steam_path()
         if steam is None:
-            messagebox.showerror("Steam missing", "Set the Steam path first.")
+            messagebox.showerror("Steam Missing", "Set the Steam path first.")
             return
         try:
             backups = lumacore_games.list_all_acf_backups(steam)
@@ -670,12 +691,12 @@ class LumaCoreTab(ttk.Frame):
             return
         if not backups:
             messagebox.showinfo(
-                "No ACF backups",
+                "No ACF Backups",
                 "No ACF backups were found. Nothing to clean.",
             )
             return
         if not messagebox.askyesno(
-            "Clean ACF backups",
+            "Clean ACF Backups",
             f"Delete {len(backups)} ACF backup(s) from your Steam libraries?\n"
             f"This cannot be undone. The backups are no longer needed once the\n"
             f"corresponding games are either re-installed via Steam or no longer\n"
@@ -728,7 +749,7 @@ class RestoreAcfDialog(tk.Toplevel):
         )
         for col, text, w in zip(
             columns,
-            ("", "AppID", "Name", "Library", "Backup date", "Status"),
+            ("", "AppID", "Name", "Library", "Backup Date", "Status"),
             (30, 80, 220, 240, 100, 110),
         ):
             self.tree.heading(col, text=text)
@@ -859,7 +880,7 @@ class RestoreAcfDialog(tk.Toplevel):
                     selected_paths.append(backup)
                     break
         if not selected_paths:
-            messagebox.showinfo("Restore", "No backups selected.")
+            messagebox.showwarning("No Backup Selected", "No backups selected.")
             return
         try:
             restored, skipped = lumacore_games.restore_acf_backups_selected(
@@ -867,13 +888,16 @@ class RestoreAcfDialog(tk.Toplevel):
             )
         except Exception as exc:
             self.parent_tab.log(f"[LumaCore] Restore error: {exc}")
-            messagebox.showerror("Error", str(exc))
+            messagebox.showerror(
+                "Restore Failed",
+                f"Failed to restore ACF backups:\n{exc}\n\nSee depot_manager.log for details.",
+            )
             return
         self.parent_tab.log(
             f"[LumaCore] ACF restore: {restored} restored, {skipped} skipped."
         )
         messagebox.showinfo(
-            "Restore complete",
+            "Restore Complete",
             f"Restored: {restored}\nSkipped (ACF already present): {skipped}",
         )
         self.destroy()
@@ -1024,11 +1048,11 @@ class AddGameDialog(tk.Toplevel):
     def _on_fetch(self) -> None:
         appid = self.appid_entry.get().strip()
         if not appid.isdigit():
-            messagebox.showerror("Error", "AppID must be numeric.")
+            messagebox.showerror("Invalid AppID", "AppID must be numeric.")
             return
         if not (APPID_MIN <= int(appid) <= APPID_MAX):
             messagebox.showerror(
-                "Error", f"AppID out of range ({APPID_MIN}–{APPID_MAX})."
+                "Invalid AppID", f"AppID out of range ({APPID_MIN} \u2013 {APPID_MAX})."
             )
             return
         source = self._selected_source_key()
@@ -1037,7 +1061,7 @@ class AddGameDialog(tk.Toplevel):
             self.settings.get(key_field, "").strip() or self.api_key_entry.get().strip()
         )
         if len(key) < 10:
-            messagebox.showerror("Error", "Missing or invalid API Key.")
+            messagebox.showerror("Missing API Key", "Missing or invalid API key.")
             return
 
         self.fetch_btn.config(state="disabled")
@@ -1054,7 +1078,7 @@ class AddGameDialog(tk.Toplevel):
             self.temp_dir = None
 
         if self.app.session is None:
-            messagebox.showerror("Error", "HTTP session not ready.")
+            messagebox.showerror("Session Error", "HTTP session not ready.")
             self.fetch_btn.config(state="normal")
             return
 
@@ -1063,16 +1087,24 @@ class AddGameDialog(tk.Toplevel):
             temp_dir, local_inv = await client.fetch_manifests(app_id, api_key, source)
         except APIAuthError:
             self.app.log_safe("[LumaCore] API key rejected.")
-            messagebox.showerror("Auth Error", "API Key rejected by the server.")
+            messagebox.showerror("Auth Error", "API key rejected by the server.")
         except APIHTTPError as exc:
             self.app.log_safe(f"[LumaCore] HTTP {exc.status}: {exc.message}")
-            messagebox.showerror("HTTP Error", f"{exc.status}: {exc.message}")
+            messagebox.showerror(
+                "HTTP Error", f"Server responded with {exc.status}: {exc.message}"
+            )
         except APINetworkError as exc:
             self.app.log_safe(f"[LumaCore] Network error: {exc}")
-            messagebox.showerror("Network Error", str(exc))
+            messagebox.showerror(
+                "Network Error",
+                f"Connection failed:\n{exc}\n\nSee depot_manager.log for details.",
+            )
         except Exception as exc:
             self.app.log_safe(f"[LumaCore] Fetch error: {exc}")
-            messagebox.showerror("Error", f"Unexpected error:\n{exc}")
+            messagebox.showerror(
+                "Unexpected Error",
+                f"Unexpected error:\n{exc}\n\nSee depot_manager.log for details.",
+            )
         else:
             self.temp_dir = temp_dir
             self.inventory = local_inv
@@ -1128,7 +1160,7 @@ class AddGameDialog(tk.Toplevel):
         if not appid.isdigit():
             return
         if self.temp_dir is None or not self.inventory:
-            messagebox.showerror("Error", "Fetch a manifest first.")
+            messagebox.showerror("No Manifest Loaded", "Fetch a manifest first.")
             return
         mode = self.mode_var.get()
         library_override = self._library_map.get(self.library_var.get())
@@ -1170,7 +1202,10 @@ class AddGameDialog(tk.Toplevel):
                 )
         except Exception as exc:
             self.app.log_safe(f"[LumaCore] Add error: {exc}")
-            messagebox.showerror("Error", str(exc))
+            messagebox.showerror(
+                "Add Game Failed",
+                f"Failed to add game:\n{exc}\n\nSee depot_manager.log for details.",
+            )
             self.confirm_btn.config(state="normal")
             return
 
@@ -1183,7 +1218,7 @@ class AddGameDialog(tk.Toplevel):
             messagebox.showinfo("Done", message)
             self.destroy()
         else:
-            messagebox.showerror("Failed", message)
+            messagebox.showerror("Add Game Failed", message)
             self.confirm_btn.config(state="normal")
 
     async def _run_depotdownloader(self, appid: str) -> None:
@@ -1196,7 +1231,7 @@ class AddGameDialog(tk.Toplevel):
         if not exe_path.exists():
             self.app.log_safe(f"[LumaCore] DepotDownloaderMod not found: {exe_path}")
             messagebox.showerror(
-                "DepotDownloaderMod missing",
+                "DepotDownloaderMod Missing",
                 f"Could not find:\n{exe_path}\n\n"
                 f"Game was injected; install DepotDownloaderMod to download files.",
             )
