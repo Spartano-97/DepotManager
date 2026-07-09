@@ -41,10 +41,6 @@ def is_steam_running() -> bool:
     if not is_windows():
         return False
     for image in _STEAM_PROCESSES:
-        rc = _run(
-            ("tasklist", "/FI", f"IMAGENAME eq {image}", "/NH"),
-            timeout=5,
-        )
         try:
             result = subprocess.run(
                 ("tasklist", "/FI", f"IMAGENAME eq {image}", "/NH", "/FO", "CSV"),

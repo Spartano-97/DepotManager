@@ -46,6 +46,7 @@ DEFAULT_SETTINGS: dict = {
     "lumacore_last_check": 0,
     "lumacore_variant": "release",
     "steam_id_32": "",
+    "steam_api_key": "",
 }
 
 SOURCES: dict = {

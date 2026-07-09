@@ -303,7 +303,11 @@ async def _prewarm_patterns(steam_path: Path, session: aiohttp.ClientSession) ->
             continue
 
         for mirror_template in LUMACORE_PATTERN_MIRRORS:
-            url = mirror_template.format(subdir=subdir, sha=sha)
+            if not subdir:
+                url = mirror_template.replace("{subdir}/", "").format(sha=sha)
+            else:
+                url = mirror_template.format(subdir=subdir, sha=sha)
+
             try:
                 async with session.get(
                     url, timeout=aiohttp.ClientTimeout(total=15)
@@ -353,13 +357,13 @@ async def install_lumacore(
                 pass
 
     _progress(0, "Closing Steam...")
-    kill_steam(timeout=15)
+    await asyncio.to_thread(kill_steam, 15)
 
     _progress(5, "Backing up existing proxy DLLs...")
-    _backup_proxy_dlls(steam_path)
+    await asyncio.to_thread(_backup_proxy_dlls, steam_path)
 
     _progress(10, "Removing previous LumaCore files...")
-    _reset_lumacore_files(steam_path)
+    await asyncio.to_thread(_reset_lumacore_files, steam_path)
 
     _progress(20, "Fetching latest release info...")
     try:
@@ -394,7 +398,9 @@ async def install_lumacore(
 
         _progress(90, "Extracting DLLs...")
         try:
-            written = _extract_dlls_from_zip(zip_path, steam_path)
+            written = await asyncio.to_thread(
+                _extract_dlls_from_zip, zip_path, steam_path
+            )
         except (zipfile.BadZipFile, OSError) as exc:
             return False, f"Extraction failed: {exc}"
         if written != len(LC_DLLS):

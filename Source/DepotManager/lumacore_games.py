@@ -8,8 +8,11 @@ import os
 import re
 import shutil
 import stat
+import xml.etree.ElementTree as ET
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
+
+import vdf
 
 from .config import (
     _RE_LUA_ADDAPPID,
@@ -247,6 +250,9 @@ async def add_game(
     _progress(50, "Copying manifests into depotcache...")
     written = _install_manifests(steam_path, inventory)
     logger.info("Copied %d manifest(s) to depotcache.", written)
+
+    _progress(58, "Generating achievement schema...")
+    await download_and_write_achievement_schema(steam_path, appid, settings, session)
 
     _progress(65, "Resolving game name...")
     name = await get_app_name(session, appid)
@@ -535,3 +541,215 @@ def remove_steam_cloud_fix_all(steam_path: Path, steam_id_32: str) -> Tuple[int,
         else:
             fail += 1
     return success, fail
+
+
+# --- ACHIEVEMENT SCHEMA GENERATOR ---
+async def download_and_write_achievement_schema(
+    steam_path: Path, appid: str, settings: dict, session
+) -> bool:
+    """Tries to download the achievement schema via Steam Web API, with fallback to public community XML."""
+    api_key = settings.get("steam_api_key", "").strip()
+    language = "english"
+
+    if api_key:
+        logger.info(
+            "Attempting to retrieve achievement schema via Steam Web API for AppID: %s",
+            appid,
+        )
+        url = f"https://api.steampowered.com/ISteamUserStats/GetSchemaForGame/v2/?key={api_key}&appid={appid}&l={language}"
+        try:
+            async with session.get(url) as r:
+                if r.status == 200:
+                    data = await r.json()
+                    game_data = data.get("game")
+                    if (
+                        game_data
+                        and "availableGameStats" in game_data
+                        and "achievements" in game_data["availableGameStats"]
+                    ):
+                        game_name = game_data.get("gameName", f"App {appid}")
+                        achievements = game_data["availableGameStats"]["achievements"]
+
+                        new_schema = {
+                            appid: {
+                                "gamename": game_name,
+                                "version": game_data.get("gameVersion", "1"),
+                                "stats": {},
+                            }
+                        }
+
+                        for i, ach in enumerate(achievements):
+                            block_id = (i // 32) + 1
+                            bit_id = i % 32
+
+                            stats_node = new_schema[appid]["stats"]
+                            if str(block_id) not in stats_node:
+                                stats_node[str(block_id)] = {
+                                    "type": "4",
+                                    "id": str(block_id),
+                                    "bits": {},
+                                }
+
+                            stats_node[str(block_id)]["bits"][str(bit_id)] = {
+                                "name": ach["name"],
+                                "bit": bit_id,
+                                "display": {
+                                    "name": {
+                                        language: ach.get("displayName", ""),
+                                        "token": f"NEW_ACHIEVEMENT_{block_id}_{bit_id}_NAME",
+                                    },
+                                    "desc": {
+                                        language: ach.get("description", ""),
+                                        "token": f"NEW_ACHIEVEMENT_{block_id}_{bit_id}_DESC",
+                                    },
+                                    "hidden": str(ach.get("hidden", 0)),
+                                    "icon": ach["icon"].split("/")[-1]
+                                    if ach.get("icon")
+                                    else "",
+                                    "icon_gray": ach["icongray"].split("/")[-1]
+                                    if ach.get("icongray")
+                                    else "",
+                                },
+                            }
+
+                        _write_schema_file(steam_path, appid, new_schema)
+                        return True
+                    else:
+                        logger.warning(
+                            "Steam Web API did not return valid achievements for AppID: %s. Falling back to public XML...",
+                            appid,
+                        )
+                elif r.status == 401:
+                    logger.warning(
+                        "Unauthorized Steam Web API Key (401). Falling back to public XML..."
+                    )
+                else:
+                    logger.warning(
+                        "Steam Web API returned error status %d. Falling back to public XML...",
+                        r.status,
+                    )
+        except Exception as exc:
+            logger.warning(
+                "Error during Steam Web API call: %s. Falling back to public XML...",
+                exc,
+            )
+
+    logger.info(
+        "Attempting to retrieve achievement schema via public XML (fallback) for AppID: %s",
+        appid,
+    )
+    xml_url = f"https://steamcommunity.com/stats/{appid}/achievements/?xml=1"
+    try:
+        async with session.get(xml_url) as r:
+            if r.status != 200:
+                logger.warning(
+                    "Public XML feed responded with status %d. Achievement schema unavailable.",
+                    r.status,
+                )
+                return False
+            xml_text = await r.text()
+
+        root = ET.fromstring(xml_text)
+        game_name_node = root.find(".//gameName")
+        game_name = (
+            game_name_node.text if game_name_node is not None else f"App {appid}"
+        )
+        achievements_nodes = root.findall(".//achievement")
+
+        if not achievements_nodes:
+            logger.info(
+                "AppID %s does not appear to have public achievements in the XML feed.",
+                appid,
+            )
+            return False
+
+        new_schema = {appid: {"gamename": game_name, "version": "1", "stats": {}}}
+
+        for i, ach_node in enumerate(achievements_nodes):
+            apiname_el = ach_node.find("apiname")
+            name_el = ach_node.find("name")
+            if apiname_el is None or name_el is None:
+                continue
+            apiname = apiname_el.text
+            name = name_el.text
+            desc_node = ach_node.find("description")
+            desc = desc_node.text if desc_node is not None else ""
+            icon_url_node = ach_node.find("iconClosed")
+            icon_url = icon_url_node.text if icon_url_node is not None else ""
+            icon_gray_node = ach_node.find("iconOpen")
+            icon_gray_url = icon_gray_node.text if icon_gray_node is not None else ""
+
+            block_id = (i // 32) + 1
+            bit_id = i % 32
+
+            stats_node = new_schema[appid]["stats"]
+            if str(block_id) not in stats_node:
+                stats_node[str(block_id)] = {
+                    "type": "4",
+                    "id": str(block_id),
+                    "bits": {},
+                }
+
+            stats_node[str(block_id)]["bits"][str(bit_id)] = {
+                "name": apiname,
+                "bit": bit_id,
+                "display": {
+                    "name": {
+                        "english": name,
+                        "token": f"NEW_ACHIEVEMENT_{block_id}_{bit_id}_NAME",
+                    },
+                    "desc": {
+                        "english": desc,
+                        "token": f"NEW_ACHIEVEMENT_{block_id}_{bit_id}_DESC",
+                    },
+                    "hidden": "0",
+                    "icon": icon_url.split("/")[-1] if icon_url else "",
+                    "icon_gray": icon_gray_url.split("/")[-1] if icon_gray_url else "",
+                },
+            }
+
+        _write_schema_file(steam_path, appid, new_schema)
+        return True
+
+    except Exception as exc:
+        logger.error("Failed to generate schema via XML fallback: %s", exc)
+        return False
+
+
+def _write_schema_file(steam_path: Path, appid: str, schema_dict: dict) -> None:
+    """Serializes schema to binary VDF and writes it to appcache/stats."""
+    binary_data = vdf.binary_dumps(schema_dict)
+    dest_dir = steam_path / "appcache" / "stats"
+    dest_dir.mkdir(parents=True, exist_ok=True)
+    dest_file = dest_dir / f"UserGameStatsSchema_{appid}.bin"
+    dest_file.write_bytes(binary_data)
+    logger.info("Successfully wrote achievement schema file: %s", dest_file)
+
+
+def remove_achievement_schema(
+    steam_path: Path, appid: str, steam_id_32: Optional[str] = None
+) -> List[str]:
+    """Deletes cached achievement schemas and user statistics files for a given AppID."""
+    removed = []
+    stats_dir = steam_path / "appcache" / "stats"
+    if not stats_dir.is_dir():
+        return removed
+
+    schema_file = stats_dir / f"UserGameStatsSchema_{appid}.bin"
+    if schema_file.is_file():
+        try:
+            schema_file.unlink()
+            removed.append(schema_file.name)
+        except OSError as exc:
+            logger.warning("Cannot remove achievement schema %s: %s", schema_file, exc)
+
+    if steam_id_32:
+        stats_file = stats_dir / f"UserGameStats_{steam_id_32}_{appid}.bin"
+        if stats_file.is_file():
+            try:
+                stats_file.unlink()
+                removed.append(stats_file.name)
+            except OSError as exc:
+                logger.warning("Cannot remove user stats file %s: %s", stats_file, exc)
+
+    return removed

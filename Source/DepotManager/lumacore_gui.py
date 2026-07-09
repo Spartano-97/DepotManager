@@ -78,13 +78,22 @@ class LumaCoreTab(ttk.Frame):
 
         self.steam_id_var = tk.StringVar(value=self.settings.get("steam_id_32", ""))
         self.steam_id_entry = ttk.Entry(
-            id_container, textvariable=self.steam_id_var, width=20
+            id_container, textvariable=self.steam_id_var, width=15
         )
-        self.steam_id_entry.pack(side="left", padx=5)
+        self.steam_id_entry.pack(side="left", padx=2)
 
-        ttk.Button(id_container, text="Save ID32", command=self._on_save_steam_id).pack(
-            side="left", padx=2
+        ttk.Label(id_container, text="  Steam API Key:").pack(side="left", padx=2)
+        self.steam_api_key_var = tk.StringVar(
+            value=self.settings.get("steam_api_key", "")
         )
+        self.steam_api_key_entry = ttk.Entry(
+            id_container, textvariable=self.steam_api_key_var, width=32, show="*"
+        )
+        self.steam_api_key_entry.pack(side="left", padx=2)
+
+        ttk.Button(
+            id_container, text="Save", command=self._on_save_steam_credentials
+        ).pack(side="left", padx=5)
 
         lc_frame = ttk.LabelFrame(self, text=" LumaCore Component ", padding=8)
         lc_frame.pack(fill="x", padx=4, pady=4)
@@ -237,16 +246,22 @@ class LumaCoreTab(ttk.Frame):
         self._refresh_steam_path_display()
         self.log(f"[LumaCore] Steam path set manually: {path}")
 
-    def _on_save_steam_id(self) -> None:
-        val = self.steam_id_var.get().strip()
-        if val and not val.isdigit():
+    def _on_save_steam_credentials(self) -> None:
+        steam_id = self.steam_id_var.get().strip()
+        api_key = self.steam_api_key_var.get().strip()
+
+        if steam_id and not steam_id.isdigit():
             messagebox.showerror("Error", "The SteamID32 must be numeric.")
             return
 
-        self.settings["steam_id_32"] = val
+        self.settings["steam_id_32"] = steam_id
+        self.settings["steam_api_key"] = api_key
         save_settings(self.settings)
-        self.log(f"[LumaCore] SteamID32 saved: {val or '(cleared)'}")
-        messagebox.showinfo("Saved", "SteamID32 saved successfully.")
+        self.log(
+            f"[LumaCore] Saved credentials (ID: {steam_id or '(cleared)'}, "
+            f"API Key: {'[SET]' if api_key else '(empty)'})"
+        )
+        messagebox.showinfo("Saved", "Credentials saved successfully.")
 
     # --- LUMACORE COMPONENT ---
     def _auto_check_updates(self) -> None:
@@ -516,12 +531,24 @@ class LumaCoreTab(ttk.Frame):
             )
         else:
             self.log(f"[LumaCore] Removing game {appid} (scope={scope_str})...")
+
         try:
             ok, message = lumacore_games.remove_game(steam, appid, scope=scope_str)
             if ok:
                 steam_id = self.settings.get("steam_id_32", "").strip()
+                # 1. Remove Steam Cloud Fix
                 if steam_id:
                     lumacore_games.remove_steam_cloud_fix(steam, steam_id, appid)
+                # 2. Remove Achievement bin
+                if scope_str in ("full", "full_keys"):
+                    cleaned_files = lumacore_games.remove_achievement_schema(
+                        steam, appid, steam_id if steam_id else None
+                    )
+                    if cleaned_files:
+                        self.log(
+                            f"[LumaCore] Cleaned achievement files: {', '.join(cleaned_files)}"
+                        )
+
         except Exception as exc:
             self.log(f"[LumaCore] Remove error: {exc}")
             return
