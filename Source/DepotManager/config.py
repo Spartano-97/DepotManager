@@ -76,6 +76,8 @@ LUMACORE_RELEASE_API = f"https://api.github.com/repos/{LUMACORE_REPO}/releases/l
 
 LC_DLLS = ("dwmapi.dll", "xinput1_4.dll", "LumaCore.dll", "LumaCorePayload.dll")
 
+LC_RUNTIME_DIRS = ("lumacore", "lumacore_backup")
+
 LC_RESET_FILES = (
     ("", "dwmapi.dll"),
     ("", "xinput1_4.dll"),
@@ -83,9 +85,6 @@ LC_RESET_FILES = (
     ("", "LumaCorePayload.dll"),
     ("bin", "lcoverlay.dll"),
 )
-
-LC_BACKUP_DLLS = ("dwmapi.dll", "xinput1_4.dll")
-LC_BACKUP_DIR = "lumacore_backup"
 
 LUMACORE_CHECK_INTERVAL_SEC = 6 * 60 * 60
 

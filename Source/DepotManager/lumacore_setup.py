@@ -16,10 +16,9 @@ import aiohttp
 
 from . import lumacore_games
 from .config import (
-    LC_BACKUP_DIR,
-    LC_BACKUP_DLLS,
     LC_DLLS,
     LC_RESET_FILES,
+    LC_RUNTIME_DIRS,
     LUMACORE_CHECK_INTERVAL_SEC,
     LUMACORE_PATTERN_DIR,
     LUMACORE_PATTERN_MIRRORS,
@@ -208,40 +207,18 @@ def _reset_lumacore_files(steam_path: Path) -> Tuple[int, list]:
         except OSError as exc:
             logger.warning("Cannot remove %s: %s", target, exc)
             failures.append(str(target))
+    for dirname in LC_RUNTIME_DIRS:
+        target_dir = steam_path / dirname
+        if not target_dir.is_dir():
+            continue
+        try:
+            shutil.rmtree(target_dir)
+            removed += 1
+            logger.info("Removed directory: %s", target_dir)
+        except OSError as exc:
+            logger.warning("Cannot remove directory %s: %s", target_dir, exc)
+            failures.append(str(target_dir))
     return removed, failures
-
-
-def _backup_proxy_dlls(steam_path: Path) -> int:
-    backup_dir = steam_path / LC_BACKUP_DIR
-    backup_dir.mkdir(parents=True, exist_ok=True)
-    backed_up = 0
-    for dll in LC_BACKUP_DLLS:
-        src = steam_path / dll
-        if src.is_file():
-            try:
-                shutil.copy2(src, backup_dir / dll)
-                backed_up += 1
-                logger.info("Backed up %s -> %s", src, backup_dir / dll)
-            except OSError as exc:
-                logger.warning("Cannot back up %s: %s", src, exc)
-    return backed_up
-
-
-def _restore_proxy_dlls(steam_path: Path) -> int:
-    backup_dir = steam_path / LC_BACKUP_DIR
-    if not backup_dir.is_dir():
-        return 0
-    restored = 0
-    for dll in LC_BACKUP_DLLS:
-        src = backup_dir / dll
-        if src.is_file():
-            try:
-                shutil.copy2(src, steam_path / dll)
-                restored += 1
-                logger.info("Restored %s from backup", dll)
-            except OSError as exc:
-                logger.warning("Cannot restore %s: %s", dll, exc)
-    return restored
 
 
 def _extract_dlls_from_zip(zip_path: Path, steam_path: Path) -> int:
@@ -280,6 +257,24 @@ def _sha256_of_file(path: Path) -> Optional[str]:
         return None
 
 
+def _validate_pattern_toml(data: bytes, subdir: str) -> bool:
+    """Validate that the downloaded body looks like a LumaCore pattern TOML.
+
+    Rejects bodies outside 16 B - 1 MiB, and bodies missing the expected
+    key tokens (rva+sig for standard patterns, interface_id+funcHash for IPC).
+    """
+    size = len(data)
+    if size < 16 or size > (1 << 20):
+        return False
+    try:
+        text = data.decode("utf-8", errors="replace")
+    except Exception:
+        return False
+    if subdir == "steamclientipc":
+        return ("interface_id" in text) and ("funcHash" in text)
+    return ("rva" in text) and ("sig" in text)
+
+
 async def _prewarm_patterns(steam_path: Path, session: aiohttp.ClientSession) -> int:
     pattern_root = steam_path / LUMACORE_PATTERN_DIR / "pattern"
     pattern_root.mkdir(parents=True, exist_ok=True)
@@ -298,7 +293,7 @@ async def _prewarm_patterns(steam_path: Path, session: aiohttp.ClientSession) ->
         local_dir = pattern_root / subdir if subdir else pattern_root
         local_dir.mkdir(parents=True, exist_ok=True)
         local_file = local_dir / f"{sha}.toml"
-        if local_file.exists():
+        if local_file.exists() and local_file.stat().st_size > 0:
             downloaded += 1
             continue
 
@@ -315,6 +310,13 @@ async def _prewarm_patterns(steam_path: Path, session: aiohttp.ClientSession) ->
                     if r.status != 200:
                         continue
                     data = await r.read()
+                if not _validate_pattern_toml(data, subdir):
+                    logger.warning(
+                        "Pattern body rejected (invalid content) for %s/%s",
+                        subdir or "(root)",
+                        sha,
+                    )
+                    continue
                 tmp = local_file.with_suffix(".toml.tmp")
                 tmp.write_bytes(data)
                 tmp.replace(local_file)
@@ -358,9 +360,6 @@ async def install_lumacore(
 
     _progress(0, "Closing Steam...")
     await asyncio.to_thread(kill_steam, 15)
-
-    _progress(5, "Backing up existing proxy DLLs...")
-    await asyncio.to_thread(_backup_proxy_dlls, steam_path)
 
     _progress(10, "Removing previous LumaCore files...")
     await asyncio.to_thread(_reset_lumacore_files, steam_path)
@@ -474,9 +473,6 @@ def uninstall_lumacore(
 
     _progress(40, "Removing LumaCore DLLs...")
     removed, failures = _reset_lumacore_files(steam_path)
-
-    _progress(70, "Restoring backed-up proxy DLLs...")
-    _restore_proxy_dlls(steam_path)
 
     settings["lumacore_installed_version"] = ""
     save_settings(settings)
