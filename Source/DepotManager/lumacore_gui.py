@@ -549,24 +549,10 @@ class LumaCoreTab(ttk.Frame):
 
         try:
             ok, message = lumacore_games.remove_game(steam, appid, scope=scope_str)
-            if ok:
-                steam_id = self.settings.get("steam_id_32", "").strip()
-                # 1. Remove Steam Cloud Fix
-                if steam_id:
-                    lumacore_games.remove_steam_cloud_fix(steam, steam_id, appid)
-                # 2. Remove Achievement bin
-                if scope_str in ("full", "full_keys"):
-                    cleaned_files = lumacore_games.remove_achievement_schema(
-                        steam, appid, steam_id if steam_id else None
-                    )
-                    if cleaned_files:
-                        self.log(
-                            f"[LumaCore] Cleaned achievement files: {', '.join(cleaned_files)}"
-                        )
-
         except Exception as exc:
             self.log(f"[LumaCore] Remove error: {exc}")
             return
+
         self.log(f"[LumaCore] {message}")
         self._refresh_games_list()
 

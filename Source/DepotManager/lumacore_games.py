@@ -724,32 +724,3 @@ def _write_schema_file(steam_path: Path, appid: str, schema_dict: dict) -> None:
     dest_file = dest_dir / f"UserGameStatsSchema_{appid}.bin"
     dest_file.write_bytes(binary_data)
     logger.info("Successfully wrote achievement schema file: %s", dest_file)
-
-
-def remove_achievement_schema(
-    steam_path: Path, appid: str, steam_id_32: Optional[str] = None
-) -> List[str]:
-    """Deletes cached achievement schemas and user statistics files for a given AppID."""
-    removed = []
-    stats_dir = steam_path / "appcache" / "stats"
-    if not stats_dir.is_dir():
-        return removed
-
-    schema_file = stats_dir / f"UserGameStatsSchema_{appid}.bin"
-    if schema_file.is_file():
-        try:
-            schema_file.unlink()
-            removed.append(schema_file.name)
-        except OSError as exc:
-            logger.warning("Cannot remove achievement schema %s: %s", schema_file, exc)
-
-    if steam_id_32:
-        stats_file = stats_dir / f"UserGameStats_{steam_id_32}_{appid}.bin"
-        if stats_file.is_file():
-            try:
-                stats_file.unlink()
-                removed.append(stats_file.name)
-            except OSError as exc:
-                logger.warning("Cannot remove user stats file %s: %s", stats_file, exc)
-
-    return removed
