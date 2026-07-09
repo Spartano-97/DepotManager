@@ -635,12 +635,24 @@ class App(tk.Tk):
             )
 
     async def _process_downloads(
-        self, selected_ids: list, exe_path: Path, app_id: str
+        self,
+        selected_ids: list,
+        exe_path: Path,
+        app_id: str,
+        output_dir: Optional[Path] = None,
     ) -> None:
         self._inner_task = asyncio.current_task()
 
+        if output_dir is None:
+            output_dir = APP_DIR / "saved_depot" / app_id
+        output_dir.mkdir(parents=True, exist_ok=True)
+
         downloader = DownloadManager(
-            self.settings, self.inventory, self._current_temp_dir, self.log_safe
+            self.settings,
+            self.inventory,
+            self._current_temp_dir,
+            self.log_safe,
+            output_dir=output_dir,
         )
 
         try:
