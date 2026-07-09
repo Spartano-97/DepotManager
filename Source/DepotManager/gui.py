@@ -364,7 +364,7 @@ class App(tk.Tk):
 
     async def _fetch_and_scan(self, app_id: str, api_key: str, source: str) -> None:
         self.log_safe(
-            f"[*] API request for AppID: {app_id} (source: {SOURCES[source]['label']})"
+            f"[DepotDownloaderMod] API request for AppID: {app_id} (source: {SOURCES[source]['label']})"
         )
 
         if self._current_temp_dir and self._current_temp_dir.exists():
@@ -385,7 +385,7 @@ class App(tk.Tk):
         try:
             temp_dir, local_inv = await client.fetch_manifests(app_id, api_key, source)
             self.after(0, self._update_inventory_and_ui, local_inv, temp_dir)
-            self.log_safe("[+] Scan completed.")
+            self.log_safe("[DepotDownloaderMod] Scan completed.")
 
         except APIAuthError:
             self.after(
@@ -458,7 +458,7 @@ class App(tk.Tk):
         self.run_async(self._load_local_archive(Path(file_path)))
 
     async def _load_local_archive(self, file_path: Path) -> None:
-        self.log_safe(f"[*] Loading local archive: {file_path.name}")
+        self.log_safe(f"[DepotDownloaderMod] Loading local archive: {file_path.name}")
 
         if self._current_temp_dir and self._current_temp_dir.exists():
             try:
@@ -489,7 +489,7 @@ class App(tk.Tk):
             self.after(
                 0, self._update_local_inventory_and_ui, local_inv, temp_dir, appid_found
             )
-            self.log_safe("[+] Local scan completed.")
+            self.log_safe("[DepotDownloaderMod] Local scan completed.")
 
         except Exception as exc:
             logger.exception("Unexpected error loading local archive.")
@@ -634,7 +634,9 @@ class App(tk.Tk):
 
     def _on_stop_click(self) -> None:
         if self._inner_task is not None and not self._inner_task.done():
-            self.log_safe("Stop requested, terminating processes...")
+            self.log_safe(
+                "[DepotDownloaderMod] Stop requested, terminating processes..."
+            )
             self.loop.call_soon_threadsafe(self._inner_task.cancel)
         else:
             messagebox.showinfo(
