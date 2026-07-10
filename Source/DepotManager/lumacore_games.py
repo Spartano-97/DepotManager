@@ -283,8 +283,11 @@ async def add_game(
     acf_path = library / f"appmanifest_{appid}.acf"
     write_acf(acf_path, appid, name, installdir, depots)
 
-    _progress(100, f"Game {appid} prepared for DepotDownloaderMod.")
-    return True, f"Game {appid} ({name}) prepared. Run DepotDownloaderMod next."
+    _progress(100, f"Game {appid} prepared. Restart Steam to play.")
+    return True, (
+        f"Game {appid} ({name}) injected and installed. Restart Steam: it will appear "
+        "as owned and installed in your library (a file verification might be required)."
+    )
 
 
 async def update_game(
