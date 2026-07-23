@@ -44,3 +44,50 @@ class CustomMessageBox(simpledialog.Dialog):
     def _select(self, value: Any) -> None:
         self.result = value
         self.destroy()
+
+class ToolTip:
+    """Tooltip overing over widget."""
+
+    def __init__(self, widget: tk.Widget, text: str, delay: int = 500):
+        self.widget = widget
+        self.text = text
+        self.delay = delay
+        self.tip_window: Optional[tk.Toplevel] = None
+        self.id: Optional[str] = None
+
+        widget.bind("<Enter>", self._on_enter)
+        widget.bind("<Leave>", self._on_leave)
+
+    def _on_enter(self, event=None) -> None:
+        self.id = self.widget.after(self.delay, self._show_tip)
+
+    def _on_leave(self, event=None) -> None:
+        if self.id:
+            self.widget.after_cancel(self.id)
+            self.id = None
+        self._hide_tip()
+
+    def _show_tip(self) -> None:
+        if self.tip_window:
+            return
+        x = self.widget.winfo_rootx() + 20
+        y = self.widget.winfo_rooty() + self.widget.winfo_height() + 5
+        self.tip_window = tk.Toplevel(self.widget)
+        self.tip_window.wm_overrideredirect(True)
+        self.tip_window.wm_geometry(f"+{x}+{y}")
+        label = tk.Label(
+            self.tip_window,
+            text=self.text,
+            justify="left",
+            background="#ffffe0",
+            relief="solid",
+            borderwidth=1,
+            font=("Consolas", 9),
+            wraplength=300,
+        )
+        label.pack()
+
+    def _hide_tip(self) -> None:
+        if self.tip_window:
+            self.tip_window.destroy()
+            self.tip_window = None

@@ -8,7 +8,7 @@ import shutil
 import tkinter as tk
 from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
-from .widgets import CustomMessageBox
+from .widgets import CustomMessageBox, ToolTip
 from typing import TYPE_CHECKING, Callable, Optional
 
 from . import lumacore_games, lumacore_setup, steam_process
@@ -82,6 +82,11 @@ class LumaCoreTab(ttk.Frame):
             id_container, textvariable=self.steam_id_var, width=15
         )
         self.steam_id_entry.pack(side="left", padx=2)
+        ToolTip(
+            self.steam_id_entry,
+            "SteamID32 of the user profile to apply Steam Cloud Fix to.\n"
+            "Useful when managing multiple local Steam profiles.",
+        )
 
         ttk.Label(id_container, text="  Steam API Key:").pack(side="left", padx=2)
         self.steam_api_key_var = tk.StringVar(
@@ -91,6 +96,11 @@ class LumaCoreTab(ttk.Frame):
             id_container, textvariable=self.steam_api_key_var, width=32, show="*"
         )
         self.steam_api_key_entry.pack(side="left", padx=2)
+        ToolTip(
+            self.steam_api_key_entry,
+            "Steam Web API Key used to fetch achievement schemas.\n"
+            "Required for complete achievement data when adding or updating games.",
+        )
 
         ttk.Button(
             id_container, text="Save", command=self._on_save_steam_credentials
