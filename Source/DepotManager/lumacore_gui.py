@@ -8,6 +8,7 @@ import shutil
 import tkinter as tk
 from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
+from .widgets import CustomMessageBox
 from typing import TYPE_CHECKING, Callable, Optional
 
 from . import lumacore_games, lumacore_setup, steam_process
@@ -222,12 +223,14 @@ class LumaCoreTab(ttk.Frame):
             return
         path = Path(choice)
         if not (path / "steam.exe").is_file() and not (path / "steamapps").is_dir():
-            if not messagebox.askyesno(
+            choice = CustomMessageBox(
+                self,
                 "Unlikely Steam Path",
                 f"The selected folder does not look like a Steam installation\n"
-                f"(no steam.exe or steamapps/ found):\n\n  {path}\n\n"
-                f"Use it anyway?",
-            ):
+                f"(no steam.exe or steamapps/ found):\n\n  {path}",
+                [("Use Anyway", "use"), ("Cancel", None)],
+            ).result
+            if choice != "use":
                 return
         set_steam_path(self.settings, path)
         save_settings(self.settings)
@@ -290,14 +293,17 @@ class LumaCoreTab(ttk.Frame):
         if steam is None:
             messagebox.showerror("Steam Missing", "Set the Steam path first.")
             return
-        if not messagebox.askyesno(
+        choice = CustomMessageBox(
+            self,
             "Install LumaCore",
             f"This will:\n"
             f"  - Close Steam\n"
             f"  - Download the latest LumaCore from GitHub\n"
             f"  - Place LumaCore DLLs in:\n     {steam}\n\n"
-            f"Restart Steam manually afterwards.\n\nContinue?",
-        ):
+            f"Restart Steam manually afterwards.",
+            [("Install", "install"), ("Cancel", None)],
+        ).result
+        if choice != "install":
             return
         self.app.run_async(self._install_async(steam))
 
@@ -339,27 +345,35 @@ class LumaCoreTab(ttk.Frame):
                 listing += f"\n  ... and {games_count - 20} more"
 
             msg = (
-                f"LumaCore Uninstall Options:\n\n"
-                f"Yes: Full Uninstall (Close Steam, remove DLLs AND remove {games_count} managed games)\n"
-                f"No: Normal Uninstall (Close Steam, remove DLLs only)\n"
-                f"Cancel: Abort Uninstall\n\n"
+                f"Close Steam, remove LumaCore DLLs, and remove "
+                f"{games_count} managed game(s).\n\n"
                 f"WARNING: If you have legitimately purchased any of these games\n"
                 f"AFTER injecting them via DepotManager, their install state (ACF)\n"
                 f"will be deleted. Steam will show them as not installed. Use\n"
                 f"Steam's 'Verify integrity of game files' to rebuild the ACF.\n\n"
-                f"{listing}\n\n"
-                f"Continue?"
+                f"{listing}"
             )
-            response = messagebox.askyesnocancel("Uninstall LumaCore", msg)
+            response = CustomMessageBox(
+                self,
+                "Uninstall LumaCore",
+                msg,
+                [
+                    ("Full Uninstall", "full"),
+                    ("Normal Uninstall", "normal"),
+                    ("Cancel", None),
+                ],
+            ).result
         elif installed and games_count == 0:
             msg = (
-                "No managed games found.\n\n"
-                "Yes: Uninstall LumaCore (Close Steam, remove DLLs)\n"
-                "No: Same as Yes (no managed games to remove)\n"
-                "Cancel: Abort Uninstall\n\n"
-                "Continue?"
+                "No managed games found.\n"
+                "Close Steam and remove LumaCore DLLs."
             )
-            response = messagebox.askyesnocancel("Uninstall LumaCore", msg)
+            response = CustomMessageBox(
+                self,
+                "Uninstall LumaCore",
+                msg,
+                [("Uninstall", "full"), ("Cancel", None)],
+            ).result
         elif not installed and games_count == 0:
             messagebox.showinfo(
                 "Nothing To Do",
@@ -373,17 +387,18 @@ class LumaCoreTab(ttk.Frame):
             msg = (
                 f"LumaCore is not installed, but {games_count} managed game(s)\n"
                 f"were found (left over from a previous install):\n\n{listing}\n\n"
-                f"Yes: Full Cleanup (Remove lua + manifests + ACF + depot keys)\n"
-                f"No: Skip Game Cleanup (Only reset LumaCore files)\n"
-                f"Cancel: Abort\n\n"
-                f"(Steam will NOT be closed — these files are not locked.)\n\nContinue?"
+                f"Clean up their files (lua, manifests, ACF, depot keys)?\n"
+                f"Steam will NOT be closed, these files are not locked."
             )
-            response = messagebox.askyesnocancel("Clean Up Orphan Game Files", msg)
+            response = CustomMessageBox(
+                self,
+                "Clean Up Orphan Game Files",
+                msg,
+                [("Clean Up", "full"), ("Cancel", None)],
+            ).result
 
-        if response is True:  # YES -> Full
+        if response == "full":
             self.app.run_async(self._uninstall_async(steam, complete=True))
-        elif response is False:  # NO -> Normal
-            self.app.run_async(self._uninstall_async(steam, complete=False))
 
     async def _uninstall_async(self, steam: Path, complete: bool) -> None:
         self.log("[LumaCore] Uninstalling... (Steam will be closed)")
@@ -410,10 +425,13 @@ class LumaCoreTab(ttk.Frame):
             messagebox.showerror("Uninstall Failed", message)
 
     def _on_restart_steam(self) -> None:
-        if not messagebox.askyesno(
+        choice = CustomMessageBox(
+            self,
             "Restart Steam",
-            "This will force-close Steam and restart it immediately.\n\nContinue?",
-        ):
+            "This will force-close Steam and restart it immediately.",
+            [("Restart", "restart"), ("Cancel", None)],
+        ).result
+        if choice != "restart":
             return
 
         self.log("[LumaCore] Restarting Steam...")
@@ -451,6 +469,7 @@ class LumaCoreTab(ttk.Frame):
         except Exception as exc:
             self.log(f"[LumaCore] Cannot list games: {exc}")
             return
+        self.log(f"[LumaCore] Scan complete: found {len(games)} managed game(s).")
         for g in games:
             self.games_tree.insert(
                 "",
@@ -512,16 +531,19 @@ class LumaCoreTab(ttk.Frame):
                 "No Game Selected", "Select a game in the list first."
             )
             return
-        scope = messagebox.askyesnocancel(
+        scope = CustomMessageBox(
+            self,
             "Remove Game",
-            f"Remove game {appid}?\n\n"
-            f"Yes: Full Remove (lua + manifests + ACF + depot keys)\n"
-            f"No: Normal Remove (lua only)\n"
-            f"Cancel: Abort Remove",
-        )
+            f"Remove game {appid}?",
+            [
+                ("Full Remove", "full"),
+                ("Normal Remove", "normal"),
+                ("Cancel", None),
+            ],
+        ).result
         if scope is None:
             return
-        scope_str = "full_keys" if scope else "basic"
+        scope_str = "full_keys" if scope == "full" else "basic"
         steam = self._current_steam_path()
         if steam is None:
             return
@@ -559,19 +581,25 @@ class LumaCoreTab(ttk.Frame):
 
         msg = (
             f"Steam Cloud Fix Management for profile: {steam_id}\n\n"
-            "This utility prevents Steam Cloud sync errors and client lockups for games injected with LumaCore.\n\n"
-            "Yes: Activate Fix (Applied to ALL managed games)\n"
-            "No: Deactivate Fix (Clean up and remove fix for SteamID32 User)\n"
-            "Cancel: Abort operation\n\n"
-            "Continue?"
+            "This utility prevents Steam Cloud sync errors and client lockups\n"
+            "for games injected with LumaCore."
         )
-        response = messagebox.askyesnocancel("Steam Cloud Fix", msg)
+        response = CustomMessageBox(
+            self,
+            "Steam Cloud Fix",
+            msg,
+            [
+                ("Activate Fix", "activate"),
+                ("Deactivate Fix", "deactivate"),
+                ("Cancel", None),
+            ],
+        ).result
 
-        if response is True:
+        if response == "activate":
             self.app.run_async(
                 self._steam_cloud_fix_async(steam, steam_id, activate=True)
             )
-        elif response is False:
+        elif response == "deactivate":
             self.app.run_async(
                 self._steam_cloud_fix_async(steam, steam_id, activate=False)
             )
