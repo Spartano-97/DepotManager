@@ -347,7 +347,7 @@ class LumaCoreTab(ttk.Frame):
             msg = (
                 f"Close Steam, remove LumaCore DLLs, and remove "
                 f"{games_count} managed game(s).\n\n"
-                f"WARNING: If you have legitimately purchased any of these games\n"
+                f"WARNING: If you select 'Full Uninstall' and you have legitimately purchased any of these games\n"
                 f"AFTER injecting them via DepotManager, their install state (ACF)\n"
                 f"will be deleted. Steam will show them as not installed. Use\n"
                 f"Steam's 'Verify integrity of game files' to rebuild the ACF.\n\n"
@@ -359,7 +359,7 @@ class LumaCoreTab(ttk.Frame):
                 msg,
                 [
                     ("Full Uninstall", "full"),
-                    ("Normal Uninstall", "normal"),
+                    ("Deactivate", "normal"),
                     ("Cancel", None),
                 ],
             ).result
@@ -713,6 +713,7 @@ class AddGameDialog(tk.Toplevel):
             width=20,
         )
         self.source_combo.grid(row=0, column=1, padx=5, sticky="w")
+        self.source_combo.bind("<<ComboboxSelected>>", self._on_source_change)
         selected = self.settings.get("selected_source", "morrenus")
         if selected in SOURCES:
             self.source_combo.set(SOURCES[selected]["label"])
@@ -722,6 +723,7 @@ class AddGameDialog(tk.Toplevel):
         ttk.Label(top, text="API Key:").grid(row=1, column=0, sticky="w")
         self.api_key_entry = ttk.Entry(top, width=50, show="*")
         self.api_key_entry.grid(row=1, column=1, padx=5, sticky="we")
+        ttk.Button(top, text="Save", command=self._save_api_key).grid(row=1, column=2, padx=5)
         key_field = SOURCES[selected]["key_field"]
         self.api_key_entry.insert(0, self.settings.get(key_field, ""))
 
@@ -801,6 +803,24 @@ class AddGameDialog(tk.Toplevel):
             if info["label"] == label:
                 return k
         return "morrenus"
+
+    def _on_source_change(self, event=None) -> None:
+        source_key = self._selected_source_key()
+        self.api_key_entry.delete(0, tk.END)
+        key_field = SOURCES[source_key]["key_field"]
+        self.api_key_entry.insert(0, self.settings.get(key_field, ""))
+
+    def _save_api_key(self) -> None:
+        key = self.api_key_entry.get().strip()
+        if len(key) < 10:
+            messagebox.showwarning("API Key Too Short", "The API key is too short.")
+            return
+        source_key = self._selected_source_key()
+        key_field = SOURCES[source_key]["key_field"]
+        self.settings[key_field] = key
+        self.settings["selected_source"] = source_key
+        save_settings(self.settings)
+        messagebox.showinfo("Saved", "API key saved successfully.")
 
     def _on_fetch(self) -> None:
         appid = self.appid_entry.get().strip()
