@@ -399,6 +399,8 @@ class LumaCoreTab(ttk.Frame):
 
         if response == "full":
             self.app.run_async(self._uninstall_async(steam, complete=True))
+        elif response == "normal":
+            self.app.run_async(self._uninstall_async(steam, complete=False))
 
     async def _uninstall_async(self, steam: Path, complete: bool) -> None:
         self.log("[LumaCore] Uninstalling... (Steam will be closed)")
