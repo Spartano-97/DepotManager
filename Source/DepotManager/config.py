@@ -1,3 +1,5 @@
+"""Application constants, settings I/O, and LumaCore configuration."""
+
 import json
 import logging
 import os
@@ -5,9 +7,7 @@ import re
 import sys
 from pathlib import Path
 
-# ---------------------------------------------------------------------------
-# CONSTANTS & PATH RESOLUTION
-# ---------------------------------------------------------------------------
+# --- CONSTANTS & PATH RESOLUTION ---
 BUNDLE_DIR = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parent))
 
 if getattr(sys, "frozen", False):
@@ -19,7 +19,7 @@ SETTINGS_FILE = str(APP_DIR / "settings.json")
 KEYS_FILE = str(APP_DIR / "keys.txt")
 LOG_FILE = str(APP_DIR / "depot_manager.log")
 
-APP_VERSION = "1.3.0"
+APP_VERSION = "2.0.0"
 
 _BANNER = (
     "  ____                  _       __  __                                    \n"
@@ -41,6 +41,12 @@ DEFAULT_SETTINGS: dict = {
     "selected_source": "morrenus",
     "max_concurrent_downloads": 1,
     "request_timeout": 30,
+    "steam_path": "",
+    "lumacore_installed_version": "",
+    "lumacore_last_check": 0,
+    "lumacore_variant": "release",
+    "steam_id_32": "",
+    "steam_api_key": "",
 }
 
 SOURCES: dict = {
@@ -56,18 +62,42 @@ SOURCES: dict = {
 
 APPID_MIN = 1
 APPID_MAX = 2_000_000_000
+APPID_OWNERSHIP_FAKE = "1"
 
-# Regex patterns for Lua and Manifest files
 _RE_LUA_ADDAPPID = re.compile(r'addappid\((\d+),\s*\d+,\s*"([A-Za-z0-9]+)"\)')
 _RE_LUA_TABLE = re.compile(r'\[(\d+)\]\s*=\s*"([A-Za-z0-9]+)"')
 _RE_MANIFEST = re.compile(r"^(\d+)_(\d+)\.manifest$")
+_RE_LUA_SETMANIFEST = re.compile(r'setManifestid\(\s*(\d+)\s*,\s*"(\d+)"\s*\)')
+_RE_LUA_ADDAPPID_OWNERSHIP = re.compile(r"addappid\(\s*(\d+)\s*\)")
+
+# --- LUMACORE CONSTANTS ---
+LUMACORE_REPO = "KoriaPolis/LumaCore"
+LUMACORE_RELEASE_API = f"https://api.github.com/repos/{LUMACORE_REPO}/releases/latest"
+
+LC_DLLS = ("dwmapi.dll", "xinput1_4.dll", "LumaCore.dll", "LumaCorePayload.dll")
+
+LC_RUNTIME_DIRS = ("lumacore", "lumacore_backup")
+
+LC_RESET_FILES = (
+    ("", "dwmapi.dll"),
+    ("", "xinput1_4.dll"),
+    ("", "LumaCore.dll"),
+    ("", "LumaCorePayload.dll"),
+    ("bin", "lcoverlay.dll"),
+)
+
+LUMACORE_CHECK_INTERVAL_SEC = 6 * 60 * 60
+
+LUMACORE_PATTERN_MIRRORS = (
+    "https://raw.githubusercontent.com/KoriaPolis/Steam-Auto-PT/pattern/{subdir}/{sha}.toml",
+    "https://cdn.jsdelivr.net/gh/KoriaPolis/Steam-Auto-PT@pattern/{subdir}/{sha}.toml",
+)
+LUMACORE_PATTERN_DIR = "lumacore"
 
 logger = logging.getLogger("DepotManager.Config")
 
 
-# ---------------------------------------------------------------------------
-# SETTINGS FUNCTIONS
-# ---------------------------------------------------------------------------
+# --- SETTINGS FUNCTIONS ---
 def load_settings() -> dict:
     """Loads settings from settings.json or returns default settings if not exists/corrupted."""
     settings = DEFAULT_SETTINGS.copy()
@@ -75,7 +105,6 @@ def load_settings() -> dict:
         try:
             with open(SETTINGS_FILE, "r", encoding="utf-8") as f:
                 loaded = json.load(f)
-            # Legacy fields migrations
             if "api_key" in loaded and not loaded.get("api_key_morrenus"):
                 loaded["api_key_morrenus"] = loaded.pop("api_key")
             else:
@@ -84,7 +113,6 @@ def load_settings() -> dict:
                 loaded["api_base_url_morrenus"] = loaded.pop("api_base_url")
             else:
                 loaded.pop("api_base_url", None)
-            # Auto-migrate exe_name if it points to the old default relative path
             if loaded.get("exe_name") == "DepotDownloaderMod.exe":
                 loaded["exe_name"] = "../DepotDownloaderMod/DepotDownloaderMod.exe"
 

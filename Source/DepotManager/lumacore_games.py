@@ -1,0 +1,678 @@
+"""Per-game management for the LumaCore integration layer."""
+
+from __future__ import annotations
+
+import asyncio
+import logging
+import os
+import re
+import shutil
+import stat
+import xml.etree.ElementTree as ET
+from pathlib import Path
+from typing import Dict, List, Optional, Tuple
+
+import vdf
+
+from .config import (
+    _RE_LUA_ADDAPPID,
+    _RE_LUA_ADDAPPID_OWNERSHIP,
+    _RE_LUA_SETMANIFEST,
+    _RE_MANIFEST,
+    APP_DIR,
+    APPID_OWNERSHIP_FAKE,
+)
+from .parser import get_lua_file, manifest_gid_from_name
+from .steam_path import (
+    find_acf_for_app,
+    get_app_name,
+    get_steam_libraries,
+    pick_library,
+    pick_library_default,
+    sanitize_installdir,
+)
+from .vdf_io import (
+    add_depot_keys,
+    read_acf,
+    read_acf_depots,
+    remove_acf,
+    remove_depot_keys,
+    write_acf,
+)
+
+logger = logging.getLogger("DepotManager.LumaCoreGames")
+
+STPLUG_IN_SUBDIR = "config/stplug-in"
+DEPOTCACHE_SUBDIR = "depotcache"
+DEPOTCACHE_CONFIG_SUBDIR = "config/depotcache"
+SAVED_LUA_DIR = APP_DIR / "saved_lua"
+
+DownloadMode = str
+
+
+# --- LUA PARSING ---
+def _parse_lua_summary(lua_path: Path) -> Dict:
+    summary: Dict = {
+        "app_id": None,
+        "depots": [],
+        "manifest_pins": {},
+        "ownership_ids": [],
+    }
+    try:
+        text = lua_path.read_text(encoding="utf-8", errors="replace")
+    except OSError as exc:
+        logger.warning("Cannot read %s: %s", lua_path, exc)
+        return summary
+
+    if lua_path.stem.isdigit():
+        summary["app_id"] = lua_path.stem
+
+    for did, key in _RE_LUA_ADDAPPID.findall(text):
+        summary["depots"].append((did, key))
+    for did in _RE_LUA_ADDAPPID_OWNERSHIP.findall(text):
+        if did != APPID_OWNERSHIP_FAKE:
+            summary["ownership_ids"].append(did)
+    for did, gid in _RE_LUA_SETMANIFEST.findall(text):
+        summary["manifest_pins"][did] = gid
+    return summary
+
+
+# --- LIST ---
+def list_installed_games(steam_path: Path) -> List[Dict]:
+    """List every game managed by DepotManager (i.e. with a stplug-in lua).
+
+    Each entry: ``{appid, name, depot_count, has_acf, lua_path, depots}``.
+    """
+    stplug_in = steam_path / STPLUG_IN_SUBDIR
+    if not stplug_in.is_dir():
+        return []
+
+    libraries = get_steam_libraries(steam_path)
+    games: List[Dict] = []
+    for lua in sorted(stplug_in.glob("*.lua")):
+        if not lua.stem.isdigit():
+            continue
+        appid = lua.stem
+        summary = _parse_lua_summary(lua)
+        acf_path = find_acf_for_app(libraries, appid)
+        name = appid
+        if acf_path is not None:
+            from .vdf_io import read_acf
+
+            state = read_acf(acf_path)
+            if state and state.get("name"):
+                name = str(state["name"])
+        games.append(
+            {
+                "appid": appid,
+                "name": name,
+                "depot_count": len(summary["depots"]),
+                "has_acf": acf_path is not None,
+                "lua_path": lua,
+                "depots": summary["depots"],
+                "manifest_pins": summary["manifest_pins"],
+            }
+        )
+    return games
+
+
+# --- ADD / UPDATE ---
+def _install_lua(steam_path: Path, appid: str, lua_src: Path) -> Path:
+    stplug_in = steam_path / STPLUG_IN_SUBDIR
+    stplug_in.mkdir(parents=True, exist_ok=True)
+    dest = stplug_in / f"{appid}.lua"
+    shutil.copy2(lua_src, dest)
+    logger.info("Installed lua: %s", dest)
+
+    SAVED_LUA_DIR.mkdir(parents=True, exist_ok=True)
+    backup = SAVED_LUA_DIR / f"{appid}.lua"
+    shutil.copy2(lua_src, backup)
+    return dest
+
+
+def _install_manifests(steam_path: Path, inventory: Dict) -> int:
+    primary = steam_path / DEPOTCACHE_SUBDIR
+    mirror = steam_path / DEPOTCACHE_CONFIG_SUBDIR
+    primary.mkdir(parents=True, exist_ok=True)
+    mirror.mkdir(parents=True, exist_ok=True)
+
+    count = 0
+    for did, info in inventory.items():
+        manifest = info.get("manifest_file") if isinstance(info, dict) else None
+        if manifest is None:
+            continue
+        src = Path(manifest)
+        if not src.is_absolute():
+            continue
+        if not src.is_file():
+            continue
+        name = src.name
+        if not _RE_MANIFEST.match(name):
+            continue
+        for dest_dir in (primary, mirror):
+            dest = dest_dir / name
+            if dest.exists():
+                continue
+            try:
+                shutil.copy2(src, dest)
+                count += 1
+            except OSError as exc:
+                logger.warning("Cannot copy manifest %s -> %s: %s", src, dest, exc)
+    return count
+
+
+def _depot_keys_from_inventory(inventory: Dict) -> Dict[str, str]:
+    out: Dict[str, str] = {}
+    for did, info in inventory.items():
+        if str(did) == APPID_OWNERSHIP_FAKE:
+            continue
+        key = info.get("key") if isinstance(info, dict) else None
+        if key:
+            out[str(did)] = key
+    return out
+
+
+def _depots_for_acf(inventory: Dict) -> List[Tuple[str, str]]:
+    out: List[Tuple[str, str]] = []
+    for did, info in inventory.items():
+        if str(did) == APPID_OWNERSHIP_FAKE:
+            continue
+        manifest = info.get("manifest_file") if isinstance(info, dict) else None
+        if manifest is None:
+            continue
+        name = Path(manifest).name if not isinstance(manifest, str) else manifest
+        gid = manifest_gid_from_name(name)
+        if gid:
+            out.append((str(did), gid))
+    return out
+
+
+async def add_game(
+    steam_path: Path,
+    session,
+    settings: dict,
+    appid: str,
+    inventory: Dict,
+    temp_dir: Path,
+    download_mode: DownloadMode = "steam_native",
+    progress_cb=None,
+    library_override: Optional[Path] = None,
+) -> Tuple[bool, str]:
+    """Install a game's LumaCore artefacts (lua, keys, manifests, ACF).
+
+    In ``steam_native`` mode only lua + keys + manifests are written (Steam
+    handles install location natively). In ``depotdownloader`` mode the ACF
+    is also written in the chosen library.
+
+    ``library_override``: when set, the ACF is written into this specific
+    library. When None, the default heuristic is used.
+
+    Returns (True, human_message) on success.
+    """
+    if not steam_path.is_dir():
+        return False, f"Steam path not found: {steam_path}"
+
+    from .lumacore_setup import get_installed_version as _lc_installed
+
+    if not _lc_installed(settings, steam_path):
+        return False, "LumaCore is not installed. Install it before adding games."
+
+    def _progress(pct: int, msg: str) -> None:
+        if progress_cb:
+            try:
+                progress_cb(pct, 100, msg)
+            except Exception:  # pragma: no cover
+                pass
+
+    _progress(5, "Locating lua file...")
+    lua_src = get_lua_file(temp_dir, appid)
+    if lua_src is None:
+        return False, "No .lua file found in the fetched archive."
+
+    _progress(15, "Installing lua into stplug-in...")
+    _install_lua(steam_path, appid, lua_src)
+
+    _progress(30, "Writing depot keys into config.vdf...")
+    keys = _depot_keys_from_inventory(inventory)
+    if keys:
+        config_vdf = steam_path / "config" / "config.vdf"
+        add_depot_keys(config_vdf, keys)
+
+    _progress(50, "Copying manifests into depotcache...")
+    written = _install_manifests(steam_path, inventory)
+    logger.info("Copied %d manifest(s) to depotcache.", written)
+
+    _progress(58, "Generating achievement schema...")
+    await download_and_write_achievement_schema(steam_path, appid, settings, session)
+
+    _progress(65, "Resolving game name...")
+    name = await get_app_name(session, appid)
+
+    if download_mode == "steam_native":
+        _progress(100, f"Game {appid} prepared. Restart Steam to install.")
+        return True, (
+            f"Game {appid} ({name}) injected. Restart Steam: it will appear "
+            "as owned in your library. Click Install to choose library and download."
+        )
+
+    installdir = sanitize_installdir(name)
+
+    _progress(75, "Choosing Steam library...")
+    libraries = get_steam_libraries(steam_path)
+    if not libraries:
+        return False, "No Steam library available."
+
+    library: Optional[Path] = None
+    if library_override is not None:
+        if library_override in libraries:
+            library = library_override
+            logger.info("Using user-selected library: %s", library)
+        else:
+            logger.warning(
+                "library_override %s not in libraries %s; falling back to default.",
+                library_override,
+                libraries,
+            )
+    if library is None:
+        library = pick_library_default(libraries, appid=appid)
+    if library is None:
+        return False, "No Steam library available."
+
+    _progress(85, f"Writing ACF manifest to {library.name}...")
+    depots = _depots_for_acf(inventory)
+    acf_path = library / f"appmanifest_{appid}.acf"
+    write_acf(acf_path, appid, name, installdir, depots)
+
+    _progress(100, f"Game {appid} prepared. Restart Steam to play.")
+    return True, (
+        f"Game {appid} ({name}) injected and installed. Restart Steam: it will appear "
+        "as owned and installed in your library (a file verification might be required)."
+    )
+
+
+async def update_game(
+    steam_path: Path,
+    session,
+    settings: dict,
+    appid: str,
+    inventory: Dict,
+    temp_dir: Path,
+    download_mode: DownloadMode = "steam_native",
+    progress_cb=None,
+    library_override: Optional[Path] = None,
+) -> Tuple[bool, str]:
+    """Re-run add_game. The lua/keys/manifests/ACF are overwritten idempotently.
+
+    For Update Selected the GUI passes ``library_override`` set to the library
+    where the game's ACF currently lives.
+    """
+    return await add_game(
+        steam_path,
+        session,
+        settings,
+        appid,
+        inventory,
+        temp_dir,
+        download_mode,
+        progress_cb,
+        library_override=library_override,
+    )
+
+
+# --- REMOVE ---
+def remove_game(steam_path: Path, appid: str, scope: str = "full") -> Tuple[bool, str]:
+    """Remove a managed game.
+
+    Scopes:
+      * ``basic``      — only delete ``stplug-in/<appid>.lua``.
+      * ``full``       — also delete depot manifests and the ACF.
+      * ``full_keys``  — also remove depot keys from config.vdf.
+    """
+    stplug_in = steam_path / STPLUG_IN_SUBDIR
+    lua = stplug_in / f"{appid}.lua"
+    removed: List[str] = []
+
+    if lua.is_file():
+        try:
+            lua.unlink()
+            removed.append(lua.name)
+        except OSError as exc:
+            logger.warning("Cannot remove %s: %s", lua, exc)
+
+    stray = steam_path / "config" / f"{appid}.lua"
+    if stray.is_file():
+        try:
+            stray.unlink()
+        except OSError:
+            pass
+
+    backup = SAVED_LUA_DIR / f"{appid}.lua"
+    if backup.is_file():
+        try:
+            backup.unlink()
+        except OSError:
+            pass
+
+    if scope in ("full", "full_keys"):
+        libraries = get_steam_libraries(steam_path)
+
+        depot_gids: Dict[str, str] = {}
+        acf_path = find_acf_for_app(libraries, appid)
+        if acf_path is not None:
+            depot_gids = read_acf_depots(acf_path)
+        if not depot_gids:
+            summary = (
+                _parse_lua_summary(lua) if lua.is_file() else {"manifest_pins": {}}
+            )
+            depot_gids = dict(summary.get("manifest_pins", {}))
+
+        for did, gid in depot_gids.items():
+            for sub in (DEPOTCACHE_SUBDIR, DEPOTCACHE_CONFIG_SUBDIR):
+                m = steam_path / sub / f"{did}_{gid}.manifest"
+                if m.is_file():
+                    try:
+                        m.unlink()
+                        removed.append(m.name)
+                    except OSError as exc:
+                        logger.warning("Cannot remove %s: %s", m, exc)
+
+        for lib in libraries:
+            acf = lib / f"appmanifest_{appid}.acf"
+            if acf.is_file():
+                logger.info("Removing ACF for app %s from %s", appid, acf)
+                if remove_acf(acf):
+                    removed.append(acf.name)
+
+    if scope == "full_keys":
+        depot_ids = []
+        if depot_gids:
+            depot_ids = list(depot_gids.keys())
+        else:
+            summary = _parse_lua_summary(lua) if lua.is_file() else {"depots": []}
+            depot_ids = [d for d, _ in summary.get("depots", [])]
+        if depot_ids:
+            config_vdf = steam_path / "config" / "config.vdf"
+            remove_depot_keys(config_vdf, depot_ids)
+            removed.append("config.vdf keys")
+
+    return (
+        True,
+        f"Removed {len(removed)} artefact(s) for app {appid}: {', '.join(removed)}",
+    )
+
+
+def remove_all_games(steam_path: Path) -> int:
+    """Remove every managed game (scope=full_keys). Returns the count."""
+    games = list_installed_games(steam_path)
+    for g in games:
+        try:
+            remove_game(steam_path, g["appid"], scope="full_keys")
+        except Exception as exc:  # pragma: no cover
+            logger.warning("Failed to remove game %s: %s", g["appid"], exc)
+    return len(games)
+
+
+# --- STEAM CLOUD FIX ---
+def _force_delete_dir(path: Path) -> None:
+    def _onerror(func, p, excinfo):
+        try:
+            os.chmod(p, stat.S_IWRITE)
+            func(p)
+        except OSError:
+            pass
+
+    shutil.rmtree(path, onerror=_onerror)
+
+
+def apply_steam_cloud_fix(steam_path: Path, steam_id_32: str, appid: str) -> bool:
+    if not steam_id_32:
+        return False
+
+    target_path = steam_path / "userdata" / steam_id_32 / appid
+
+    if target_path.is_dir() and not target_path.is_symlink():
+        try:
+            _force_delete_dir(target_path)
+            logger.info("Removed existing Steam Cloud folder: %s", target_path)
+        except OSError as exc:
+            logger.warning("Cannot delete folder %s: %s", target_path, exc)
+            return False
+
+    if target_path.is_file():
+        try:
+            os.chmod(target_path, stat.S_IWRITE)
+            target_path.unlink()
+        except OSError as exc:
+            logger.warning("Cannot delete existing file %s: %s", target_path, exc)
+            return False
+
+    try:
+        target_path.parent.mkdir(parents=True, exist_ok=True)
+        target_path.write_text("", encoding="utf-8")
+        os.chmod(target_path, stat.S_IREAD)
+        logger.info("Steam Cloud fix applied: %s", target_path)
+        return True
+    except OSError as exc:
+        logger.error("Error creating Steam Cloud fix in %s: %s", target_path, exc)
+        return False
+
+
+def remove_steam_cloud_fix(steam_path: Path, steam_id_32: str, appid: str) -> bool:
+    if not steam_id_32:
+        return False
+    target_file = steam_path / "userdata" / steam_id_32 / appid
+    if target_file.is_file():
+        try:
+            os.chmod(target_file, stat.S_IWRITE)
+            target_file.unlink()
+            logger.info("Removed Steam Cloud dummy file: %s", target_file)
+            return True
+        except OSError as exc:
+            logger.warning("Cannot remove fix %s: %s", target_file, exc)
+            return False
+    return True
+
+
+def apply_steam_cloud_fix_all(steam_path: Path, steam_id_32: str) -> Tuple[int, int]:
+    games = list_installed_games(steam_path)
+    success, fail = 0, 0
+    for g in games:
+        if apply_steam_cloud_fix(steam_path, steam_id_32, g["appid"]):
+            success += 1
+        else:
+            fail += 1
+    return success, fail
+
+
+def remove_steam_cloud_fix_all(steam_path: Path, steam_id_32: str) -> Tuple[int, int]:
+    games = list_installed_games(steam_path)
+    success, fail = 0, 0
+    for g in games:
+        if remove_steam_cloud_fix(steam_path, steam_id_32, g["appid"]):
+            success += 1
+        else:
+            fail += 1
+    return success, fail
+
+
+# --- ACHIEVEMENT SCHEMA GENERATOR ---
+async def download_and_write_achievement_schema(
+    steam_path: Path, appid: str, settings: dict, session
+) -> bool:
+    """Tries to download the achievement schema via Steam Web API, with fallback to public community XML."""
+    api_key = settings.get("steam_api_key", "").strip()
+    language = "english"
+
+    if api_key:
+        logger.info(
+            "Attempting to retrieve achievement schema via Steam Web API for AppID: %s",
+            appid,
+        )
+        url = f"https://api.steampowered.com/ISteamUserStats/GetSchemaForGame/v2/?key={api_key}&appid={appid}&l={language}"
+        try:
+            async with session.get(url) as r:
+                if r.status == 200:
+                    data = await r.json()
+                    game_data = data.get("game")
+                    if (
+                        game_data
+                        and "availableGameStats" in game_data
+                        and "achievements" in game_data["availableGameStats"]
+                    ):
+                        game_name = game_data.get("gameName", f"App {appid}")
+                        achievements = game_data["availableGameStats"]["achievements"]
+
+                        new_schema = {
+                            appid: {
+                                "gamename": game_name,
+                                "version": game_data.get("gameVersion", "1"),
+                                "stats": {},
+                            }
+                        }
+
+                        for i, ach in enumerate(achievements):
+                            block_id = (i // 32) + 1
+                            bit_id = i % 32
+
+                            stats_node = new_schema[appid]["stats"]
+                            if str(block_id) not in stats_node:
+                                stats_node[str(block_id)] = {
+                                    "type": "4",
+                                    "id": str(block_id),
+                                    "bits": {},
+                                }
+
+                            stats_node[str(block_id)]["bits"][str(bit_id)] = {
+                                "name": ach["name"],
+                                "bit": bit_id,
+                                "display": {
+                                    "name": {
+                                        language: ach.get("displayName", ""),
+                                        "token": f"NEW_ACHIEVEMENT_{block_id}_{bit_id}_NAME",
+                                    },
+                                    "desc": {
+                                        language: ach.get("description", ""),
+                                        "token": f"NEW_ACHIEVEMENT_{block_id}_{bit_id}_DESC",
+                                    },
+                                    "hidden": str(ach.get("hidden", 0)),
+                                    "icon": ach["icon"].split("/")[-1]
+                                    if ach.get("icon")
+                                    else "",
+                                    "icon_gray": ach["icongray"].split("/")[-1]
+                                    if ach.get("icongray")
+                                    else "",
+                                },
+                            }
+
+                        _write_schema_file(steam_path, appid, new_schema)
+                        return True
+                    else:
+                        logger.warning(
+                            "Steam Web API did not return valid achievements for AppID: %s. Falling back to public XML...",
+                            appid,
+                        )
+                elif r.status == 401:
+                    logger.warning(
+                        "Unauthorized Steam Web API Key (401). Falling back to public XML..."
+                    )
+                else:
+                    logger.warning(
+                        "Steam Web API returned error status %d. Falling back to public XML...",
+                        r.status,
+                    )
+        except Exception as exc:
+            logger.warning(
+                "Error during Steam Web API call: %s. Falling back to public XML...",
+                exc,
+            )
+
+    logger.info(
+        "Attempting to retrieve achievement schema via public XML (fallback) for AppID: %s",
+        appid,
+    )
+    xml_url = f"https://steamcommunity.com/stats/{appid}/achievements/?xml=1"
+    try:
+        async with session.get(xml_url) as r:
+            if r.status != 200:
+                logger.warning(
+                    "Public XML feed responded with status %d. Achievement schema unavailable.",
+                    r.status,
+                )
+                return False
+            xml_text = await r.text()
+
+        root = ET.fromstring(xml_text)
+        game_name_node = root.find(".//gameName")
+        game_name = (
+            game_name_node.text if game_name_node is not None else f"App {appid}"
+        )
+        achievements_nodes = root.findall(".//achievement")
+
+        if not achievements_nodes:
+            logger.info(
+                "AppID %s does not appear to have public achievements in the XML feed.",
+                appid,
+            )
+            return False
+
+        new_schema = {appid: {"gamename": game_name, "version": "1", "stats": {}}}
+
+        for i, ach_node in enumerate(achievements_nodes):
+            apiname_el = ach_node.find("apiname")
+            name_el = ach_node.find("name")
+            if apiname_el is None or name_el is None:
+                continue
+            apiname = apiname_el.text
+            name = name_el.text
+            desc_node = ach_node.find("description")
+            desc = desc_node.text if desc_node is not None else ""
+            icon_url_node = ach_node.find("iconClosed")
+            icon_url = icon_url_node.text if icon_url_node is not None else ""
+            icon_gray_node = ach_node.find("iconOpen")
+            icon_gray_url = icon_gray_node.text if icon_gray_node is not None else ""
+
+            block_id = (i // 32) + 1
+            bit_id = i % 32
+
+            stats_node = new_schema[appid]["stats"]
+            if str(block_id) not in stats_node:
+                stats_node[str(block_id)] = {
+                    "type": "4",
+                    "id": str(block_id),
+                    "bits": {},
+                }
+
+            stats_node[str(block_id)]["bits"][str(bit_id)] = {
+                "name": apiname,
+                "bit": bit_id,
+                "display": {
+                    "name": {
+                        "english": name,
+                        "token": f"NEW_ACHIEVEMENT_{block_id}_{bit_id}_NAME",
+                    },
+                    "desc": {
+                        "english": desc,
+                        "token": f"NEW_ACHIEVEMENT_{block_id}_{bit_id}_DESC",
+                    },
+                    "hidden": "0",
+                    "icon": icon_url.split("/")[-1] if icon_url else "",
+                    "icon_gray": icon_gray_url.split("/")[-1] if icon_gray_url else "",
+                },
+            }
+
+        _write_schema_file(steam_path, appid, new_schema)
+        return True
+
+    except Exception as exc:
+        logger.error("Failed to generate schema via XML fallback: %s", exc)
+        return False
+
+
+def _write_schema_file(steam_path: Path, appid: str, schema_dict: dict) -> None:
+    """Serializes schema to binary VDF and writes it to appcache/stats."""
+    binary_data = vdf.binary_dumps(schema_dict)
+    dest_dir = steam_path / "appcache" / "stats"
+    dest_dir.mkdir(parents=True, exist_ok=True)
+    dest_file = dest_dir / f"UserGameStatsSchema_{appid}.bin"
+    dest_file.write_bytes(binary_data)
+    logger.info("Successfully wrote achievement schema file: %s", dest_file)

@@ -1,10 +1,11 @@
+"""DepotManager application entry point and logging setup."""
+
 import logging
 import sys
 
 from .config import LOG_FILE
 from .gui import App
 
-# Configure Logging for the modular application
 logging.basicConfig(
     level=logging.DEBUG,
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",

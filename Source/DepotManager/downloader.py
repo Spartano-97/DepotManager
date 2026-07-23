@@ -1,8 +1,11 @@
+"""Subprocess orchestration for DepotDownloaderMod.exe."""
+
 import asyncio
 import logging
 import re
 import shutil
 import subprocess
+import sys
 from pathlib import Path
 from typing import Callable, Dict, List, Optional
 
@@ -10,7 +13,10 @@ from .config import APP_DIR, KEYS_FILE
 
 logger = logging.getLogger("DepotManager.Downloader")
 
+_NO_WINDOW = subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
 
+
+# --- DOWNLOAD MANAGER ---
 class DownloadManager:
     """Manages downloading selected Steam depots using DepotDownloaderMod.exe."""
 
@@ -20,14 +26,17 @@ class DownloadManager:
         inventory: dict,
         current_temp_dir: Optional[Path],
         log_callback: Callable[[str], None],
+        output_dir: Optional[Path] = None,
+        max_downloads: int = 16,
     ) -> None:
         self.settings = settings
         self.inventory = inventory
         self.current_temp_dir = current_temp_dir
         self.log_callback = log_callback
+        self.output_dir = output_dir
+        self.max_downloads = max_downloads
 
     def _write_keys_file(self, keys_dict: Dict[str, str]) -> None:
-        """Writes the decryption keys file for the downloader."""
         try:
             with open(KEYS_FILE, "w", encoding="utf-8") as f:
                 for did, key in keys_dict.items():
@@ -41,7 +50,6 @@ class DownloadManager:
         self, selected_ids: List[str], exe_path: Path, app_id: str
     ) -> None:
         """Orchestrates downloads of all selected depots with controlled concurrency."""
-        # Pre-populate keys
         keys_to_write = {
             str(did): self.inventory[str(did)]["key"]
             for did in selected_ids
@@ -70,21 +78,28 @@ class DownloadManager:
                 ]
 
                 if cancelled:
-                    self.log_callback("--- 🛑 OPERATION CANCELLED BY USER ---")
+                    self.log_callback(
+                        "[DepotDownloaderMod] --- OPERATION CANCELLED BY USER ---"
+                    )
                     raise asyncio.CancelledError()
                 elif errors:
-                    self.log_callback(f"--- ⚠️ COMPLETED WITH {len(errors)} ERRORS ---")
+                    self.log_callback(
+                        f"[DepotDownloaderMod] --- COMPLETED WITH {len(errors)} ERRORS ---"
+                    )
                     raise RuntimeError(
                         f"{len(errors)} depots encountered errors during download."
                     )
                 else:
-                    self.log_callback("--- ✅ ALL SELECTED DOWNLOADS COMPLETED ---")
+                    self.log_callback(
+                        "[DepotDownloaderMod] --- ALL SELECTED DOWNLOADS COMPLETED ---"
+                    )
 
             except asyncio.CancelledError:
-                # Handle cancellation of the orchestrating task
                 for t in tasks:
                     t.cancel()
-                self.log_callback("--- 🛑 DOWNLOAD OPERATION CANCELLED ---")
+                self.log_callback(
+                    "[DepotDownloaderMod] --- DOWNLOAD OPERATION CANCELLED ---"
+                )
                 raise
         finally:
             keys_path = Path(KEYS_FILE)
@@ -106,7 +121,9 @@ class DownloadManager:
         info = self.inventory.get(str(did))
         if not info or not info["manifest_file"]:
             logger.warning("Depot %s: no manifest file, skipping.", did)
-            self.log_callback(f"⚠️ Depot {did}: Missing manifest file, skipping.")
+            self.log_callback(
+                f"[DepotDownloaderMod] Depot {did}: Missing manifest file, skipping."
+            )
             return
 
         manifest_src: Path = info["manifest_file"]
@@ -124,22 +141,27 @@ class DownloadManager:
                 did,
                 manifest_src.name,
             )
-            self.log_callback(f"⚠️ Depot {did}: Unparsable manifest name, skipping.")
+            self.log_callback(
+                f"[DepotDownloaderMod] Depot {did}: Unparsable manifest name, skipping."
+            )
             return
 
         manifest_id = match.group(1)
         local_manifest = APP_DIR / manifest_src.name
 
-        # Copy manifest to local APP_DIR so DepotDownloaderMod can access it
         try:
             await asyncio.to_thread(shutil.copy, str(manifest_src), str(local_manifest))
         except OSError as exc:
             logger.error("Cannot copy manifest for depot %s: %s", did, exc)
-            self.log_callback(f"❌ Error copying manifest Depot {did}: {exc}")
+            self.log_callback(
+                f"[DepotDownloaderMod] Error copying manifest Depot {did}: {exc}"
+            )
             return
 
         async with sem:
-            self.log_callback(f"\n>>> Starting download Depot {did}...")
+            self.log_callback(
+                f"\n[DepotDownloaderMod] >>> Starting download Depot {did}..."
+            )
             cmd = [
                 str(exe_path),
                 "-app",
@@ -153,8 +175,10 @@ class DownloadManager:
                 "-depotkeys",
                 KEYS_FILE,
                 "-max-downloads",
-                "16",
+                str(self.max_downloads),
             ]
+            if self.output_dir is not None:
+                cmd.extend(["-dir", str(self.output_dir)])
             logger.debug("Command: %s", " ".join(cmd))
 
             process: Optional[asyncio.subprocess.Process] = None
@@ -164,10 +188,13 @@ class DownloadManager:
                     stdout=subprocess.PIPE,
                     stderr=subprocess.STDOUT,
                     cwd=str(APP_DIR),
+                    creationflags=_NO_WINDOW,
                 )
 
                 if process.stdout is None:
-                    self.log_callback(f"❌ No output from process for Depot {did}")
+                    self.log_callback(
+                        f"[DepotDownloaderMod] No output from process for Depot {did}"
+                    )
                     logger.error("Depot %s: stdout not available.", did)
                     return
 
@@ -194,22 +221,26 @@ class DownloadManager:
                     except asyncio.TimeoutError:
                         process.kill()
                         logger.warning("Depot %s: process forcefully killed.", did)
-                self.log_callback(f"🛑 Stopped Depot {did}")
+                self.log_callback(f"[DepotDownloaderMod] Stopped Depot {did}")
                 logger.info("Depot %s cancelled by user.", did)
                 raise
 
             except FileNotFoundError:
                 logger.error("Executable not found: %s", exe_path)
-                self.log_callback(f"❌ Executable not found: {exe_path}")
+                self.log_callback(
+                    f"[DepotDownloaderMod] Executable not found: {exe_path}"
+                )
                 raise
             except OSError as exc:
                 logger.exception("OS error in subprocess for Depot %s.", did)
-                self.log_callback(f"❌ OS error in subprocess Depot {did}: {exc}")
+                self.log_callback(
+                    f"[DepotDownloaderMod] OS error in subprocess Depot {did}: {exc}"
+                )
                 raise
             except Exception as exc:
                 logger.exception("Unexpected error in subprocess for Depot %s.", did)
                 self.log_callback(
-                    f"❌ Unexpected error Depot {did}. See the log for details."
+                    f"[DepotDownloaderMod] Unexpected error Depot {did}. See the log for details."
                 )
                 raise
             finally:

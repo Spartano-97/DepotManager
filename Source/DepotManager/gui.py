@@ -1,3 +1,5 @@
+"""Main Tkinter application window with tabbed Notebook."""
+
 import asyncio
 import concurrent.futures
 import logging
@@ -26,6 +28,7 @@ from .config import (
     save_settings,
 )
 from .downloader import DownloadManager
+from .lumacore_gui import LumaCoreTab
 
 logger = logging.getLogger("DepotManager.GUI")
 
@@ -36,7 +39,7 @@ class App(tk.Tk):
     def __init__(self) -> None:
         super().__init__()
         self.title("DepotManager - HighSeas Edition")
-        self.geometry("950x780")
+        self.geometry("1200x900")
 
         icon_path = BUNDLE_DIR / "icon.ico"
         if icon_path.exists():
@@ -74,9 +77,7 @@ class App(tk.Tk):
         self._print_banner()
         logger.info("Application started successfully.")
 
-    # -----------------------------------------------------------------------
-    # LIFECYCLE & ASYNC BRIDGE
-    # -----------------------------------------------------------------------
+    # --- LIFECYCLE & ASYNC BRIDGE ---
     def _print_banner(self) -> None:
         self.console.insert(tk.END, _BANNER)
 
@@ -131,9 +132,7 @@ class App(tk.Tk):
     def run_async(self, coro) -> concurrent.futures.Future:
         return asyncio.run_coroutine_threadsafe(coro, self.loop)
 
-    # -----------------------------------------------------------------------
-    # LOGGING UI
-    # -----------------------------------------------------------------------
+    # --- LOGGING UI ---
     def log_safe(self, message: str) -> None:
         logger.info(message)
         self.after(0, self._append_to_log, message)
@@ -152,13 +151,20 @@ class App(tk.Tk):
             self.log_buffer.clear()
         self.log_timer_active = False
 
-    # -----------------------------------------------------------------------
-    # GRAPHICAL INTERFACE
-    # -----------------------------------------------------------------------
+    # --- GRAPHICAL INTERFACE ---
     def _setup_ui(self) -> None:
         ttk.Style()
 
-        top_frame = ttk.LabelFrame(self, text=" Configuration ", padding=10)
+        self.notebook = ttk.Notebook(self)
+        self.notebook.pack(fill="both", expand=True, padx=10, pady=5)
+        tab_downloader = ttk.Frame(self.notebook)
+        self.notebook.add(tab_downloader, text="DepotDownloaderMod Manager")
+        self.lumacore_tab = LumaCoreTab(self.notebook, self)
+        self.notebook.add(self.lumacore_tab, text="LumaCore Manager")
+
+        top_frame = ttk.LabelFrame(
+            tab_downloader, text=" API Configuration ", padding=10
+        )
         top_frame.pack(fill="x", padx=10, pady=5)
 
         ttk.Label(top_frame, text="Source:").grid(row=0, column=0, sticky="w")
@@ -180,29 +186,33 @@ class App(tk.Tk):
             row=1, column=2
         )
 
-        mid_frame = ttk.Frame(self, padding=10)
-        mid_frame.pack(fill="x", padx=10)
+        actions_frame = ttk.LabelFrame(tab_downloader, text=" Actions ", padding=10)
+        actions_frame.pack(fill="x", padx=10, pady=5)
 
-        ttk.Label(mid_frame, text="Enter AppID:").pack(side="left")
-        self.appid_entry = ttk.Entry(mid_frame, width=15)
-        self.appid_entry.pack(side="left", padx=5)
+        ttk.Label(actions_frame, text="Enter AppID:").grid(row=0, column=0, sticky="w")
+        self.appid_entry = ttk.Entry(actions_frame, width=15)
+        self.appid_entry.grid(row=0, column=1, padx=5, sticky="w")
         self.fetch_btn = ttk.Button(
-            mid_frame, text="Fetch Manifest", command=self._on_fetch_click
+            actions_frame, text="Fetch Manifest", command=self._on_fetch_click
         )
-        self.fetch_btn.pack(side="left")
+        self.fetch_btn.grid(row=0, column=2, padx=(0, 5))
         self.load_btn = ttk.Button(
-            mid_frame, text="Load Archive...", command=self._on_load_click
+            actions_frame, text="Load Archive...", command=self._on_load_click
         )
-        self.load_btn.pack(side="left", padx=(5, 0))
-        ttk.Separator(mid_frame, orient="vertical").pack(side="left", padx=10, fill="y")
-        ttk.Button(mid_frame, text="☑ All", command=self._select_all).pack(
-            side="left", padx=(0, 3)
+        self.load_btn.grid(row=0, column=3, padx=(0, 5))
+        ttk.Separator(actions_frame, orient="vertical").grid(
+            row=0, column=4, padx=10, sticky="ns"
         )
-        ttk.Button(mid_frame, text="☐ None", command=self._deselect_all).pack(
-            side="left"
+        ttk.Button(actions_frame, text="☑ All", command=self._select_all).grid(
+            row=0, column=5, padx=(0, 3)
+        )
+        ttk.Button(actions_frame, text="☐ None", command=self._deselect_all).grid(
+            row=0, column=6
         )
 
-        self.table_frame = ttk.LabelFrame(self, text=" Depots Found ", padding=10)
+        self.table_frame = ttk.LabelFrame(
+            tab_downloader, text=" Depots Found ", padding=10
+        )
         self.table_frame.pack(fill="both", expand=True, padx=10, pady=5)
 
         columns = ("check", "id", "status", "key", "manifest")
@@ -210,12 +220,14 @@ class App(tk.Tk):
             self.table_frame, columns=columns, show="headings", selectmode="none"
         )
         for col, text in zip(
-            columns, ["", "Depot ID", "Status", "Key", "Manifest File"]
+            columns, ["Check", "Depot ID", "Status", "Key", "Manifest File"]
         ):
             self.tree.heading(col, text=text)
-        self.tree.column("check", width=30, anchor="center", stretch=False)
-        self.tree.column("id", width=100)
-        self.tree.column("status", width=120)
+        self.tree.column("check", width=100, anchor="center", stretch=False)
+        self.tree.column("id", width=100, anchor="w", stretch=False)
+        self.tree.column("status", width=100, anchor="center", stretch=False)
+        self.tree.column("key", width=150, anchor="w")
+        self.tree.column("manifest", width=150, anchor="w")
 
         self.tree.bind("<ButtonRelease-1>", self._on_tree_click)
 
@@ -226,16 +238,28 @@ class App(tk.Tk):
         self.tree.pack(side="left", fill="both", expand=True)
         scrollbar.pack(side="right", fill="y")
 
+        download_btns = ttk.Frame(tab_downloader)
+        download_btns.pack(fill="x", padx=10, pady=(2, 4))
+        self.download_btn = ttk.Button(
+            download_btns,
+            text="Start Download",
+            command=self._on_download_click,
+        )
+        self.download_btn.pack(side="left", padx=2)
+        self.stop_btn = ttk.Button(
+            download_btns,
+            text="Stop Download",
+            command=self._on_stop_click,
+        )
+        self.stop_btn.pack(side="left", padx=2)
+
         bottom_frame = ttk.Frame(self, padding=10)
         bottom_frame.pack(fill="both", padx=10, pady=5)
 
         self.console = scrolledtext.ScrolledText(
-            bottom_frame, height=12, bg="#1e1e1e", fg="#4CAF50", font=("Consolas", 10)
+            bottom_frame, height=20, bg="#1e1e1e", fg="#4CAF50", font=("Consolas", 10)
         )
         self.console.pack(fill="both", expand=True, pady=5)
-
-        btn_frame = ttk.Frame(bottom_frame)
-        btn_frame.pack(fill="x")
 
         ttk.Separator(bottom_frame, orient="horizontal").pack(fill="x", pady=(8, 0))
 
@@ -245,19 +269,6 @@ class App(tk.Tk):
             foreground="gray",
             font=("Consolas", 8),
         ).pack(anchor="e", pady=(3, 4))
-
-        self.download_btn = ttk.Button(
-            btn_frame,
-            text="▶ START DOWNLOAD",
-            command=self._on_download_click,
-            state="disabled",
-        )
-        self.download_btn.pack(side="left", fill="x", expand=True, padx=(0, 5))
-
-        self.stop_btn = ttk.Button(
-            btn_frame, text="🛑 STOP", command=self._on_stop_click, state="disabled"
-        )
-        self.stop_btn.pack(side="right", fill="x", expand=True, padx=(5, 0))
 
     def _load_settings_into_ui(self) -> None:
         selected = self.settings.get("selected_source", "morrenus")
@@ -284,14 +295,14 @@ class App(tk.Tk):
     def _save_api_key(self) -> None:
         key = self.api_key_entry.get().strip()
         if len(key) < 10:
-            messagebox.showwarning("Warning", "The API Key seems too short.")
+            messagebox.showwarning("API Key Too Short", "The API key is too short.")
             return
         source_key = self._get_selected_source_key()
         key_field = SOURCES[source_key]["key_field"]
         self.settings[key_field] = key
         self.settings["selected_source"] = source_key
         save_settings(self.settings)
-        messagebox.showinfo("Success", "Settings saved.")
+        messagebox.showinfo("Saved", "Settings saved successfully.")
 
     def _on_tree_click(self, event: tk.Event) -> None:
         region = self.tree.identify_region(event.x, event.y)
@@ -326,9 +337,7 @@ class App(tk.Tk):
             values[0] = "☐"
             self.tree.item(row, values=values)
 
-    # -----------------------------------------------------------------------
-    # FETCH & SCAN
-    # -----------------------------------------------------------------------
+    # --- FETCH & SCAN ---
     def _on_fetch_click(self) -> None:
         appid_str = self.appid_entry.get().strip()
         source_key = self._get_selected_source_key()
@@ -338,16 +347,16 @@ class App(tk.Tk):
         )
 
         if not appid_str.isdigit():
-            messagebox.showerror("Error", "Invalid AppID: must be numeric.")
+            messagebox.showerror("Invalid AppID", "AppID must be numeric.")
             return
         appid_int = int(appid_str)
         if not (APPID_MIN <= appid_int <= APPID_MAX):
             messagebox.showerror(
-                "Error", f"AppID out of range ({APPID_MIN} \u2013 {APPID_MAX})."
+                "Invalid AppID", f"AppID out of range ({APPID_MIN} \u2013 {APPID_MAX})."
             )
             return
         if len(key) < 10:
-            messagebox.showerror("Error", "Missing or invalid API Key.")
+            messagebox.showerror("Missing API Key", "Missing or invalid API key.")
             return
 
         self.fetch_btn.config(state="disabled")
@@ -355,7 +364,7 @@ class App(tk.Tk):
 
     async def _fetch_and_scan(self, app_id: str, api_key: str, source: str) -> None:
         self.log_safe(
-            f"[*] API request for AppID: {app_id} (source: {SOURCES[source]['label']})"
+            f"[DepotDownloaderMod] API request for AppID: {app_id} (source: {SOURCES[source]['label']})"
         )
 
         if self._current_temp_dir and self._current_temp_dir.exists():
@@ -376,13 +385,13 @@ class App(tk.Tk):
         try:
             temp_dir, local_inv = await client.fetch_manifests(app_id, api_key, source)
             self.after(0, self._update_inventory_and_ui, local_inv, temp_dir)
-            self.log_safe("[+] Scan completed.")
+            self.log_safe("[DepotDownloaderMod] Scan completed.")
 
         except APIAuthError:
             self.after(
                 0,
                 lambda: messagebox.showerror(
-                    "Auth Error", "API Key rejected by the server."
+                    "Auth Error", "API key rejected by the server."
                 ),
             )
         except APIHTTPError as exc:
@@ -396,12 +405,17 @@ class App(tk.Tk):
             self.after(
                 0,
                 lambda: messagebox.showerror(
-                    "Network Error", f"Connection failed:\n{exc}"
+                    "Network Error",
+                    f"Connection failed:\n{exc}\n\nSee depot_manager.log for details.",
                 ),
             )
         except Exception as exc:
             self.after(
-                0, lambda: messagebox.showerror("Error", f"Unexpected error:\n{exc}")
+                0,
+                lambda: messagebox.showerror(
+                    "Unexpected Error",
+                    f"Unexpected error:\n{exc}\n\nSee depot_manager.log for details.",
+                ),
             )
         finally:
             self.after(0, lambda: self.fetch_btn.config(state="normal"))
@@ -420,19 +434,15 @@ class App(tk.Tk):
 
         for did, info in sorted(self.inventory.items()):
             self.checked_depots[did] = False
-            status = (
-                "✅ READY" if info["key"] and info["manifest_file"] else "⚠️ INCOMPLETE"
-            )
+            status = "READY" if info["key"] and info["manifest_file"] else "INCOMPLETE"
             manifest_name = (
-                info["manifest_file"].name if info["manifest_file"] else "Missing"
+                info["manifest_file"].name if info["manifest_file"] else "MISSING"
             )
             self.tree.insert(
                 "",
                 tk.END,
-                values=("☐", did, status, info["key"] or "Missing", manifest_name),
+                values=("☐", did, status, info["key"] or "MISSING", manifest_name),
             )
-
-        self.download_btn.config(state="normal")
 
     def _on_load_click(self) -> None:
         from tkinter import filedialog
@@ -448,7 +458,7 @@ class App(tk.Tk):
         self.run_async(self._load_local_archive(Path(file_path)))
 
     async def _load_local_archive(self, file_path: Path) -> None:
-        self.log_safe(f"[*] Loading local archive: {file_path.name}")
+        self.log_safe(f"[DepotDownloaderMod] Loading local archive: {file_path.name}")
 
         if self._current_temp_dir and self._current_temp_dir.exists():
             try:
@@ -479,14 +489,15 @@ class App(tk.Tk):
             self.after(
                 0, self._update_local_inventory_and_ui, local_inv, temp_dir, appid_found
             )
-            self.log_safe("[+] Local scan completed.")
+            self.log_safe("[DepotDownloaderMod] Local scan completed.")
 
         except Exception as exc:
             logger.exception("Unexpected error loading local archive.")
             self.after(
                 0,
                 lambda: messagebox.showerror(
-                    "Error", f"Failed to load archive:\n{exc}"
+                    "Load Archive Failed",
+                    f"Failed to load archive:\n{exc}\n\nSee depot_manager.log for details.",
                 ),
             )
         finally:
@@ -565,54 +576,55 @@ class App(tk.Tk):
 
         for did, info in sorted(self.inventory.items()):
             self.checked_depots[did] = False
-            status = (
-                "✅ READY" if info["key"] and info["manifest_file"] else "⚠️ INCOMPLETE"
-            )
+            status = "READY" if info["key"] and info["manifest_file"] else "INCOMPLETE"
             manifest_name = (
-                info["manifest_file"].name if info["manifest_file"] else "Missing"
+                info["manifest_file"].name if info["manifest_file"] else "MISSING"
             )
             self.tree.insert(
                 "",
                 tk.END,
-                values=("☐", did, status, info["key"] or "Missing", manifest_name),
+                values=("☐", did, status, info["key"] or "MISSING", manifest_name),
             )
 
-        self.download_btn.config(state="normal")
-
-    # -----------------------------------------------------------------------
-    # DOWNLOAD
-    # -----------------------------------------------------------------------
+    # --- DOWNLOAD ---
     def _on_download_click(self) -> None:
+        if self._inner_task is not None and not self._inner_task.done():
+            messagebox.showwarning(
+                "Download In Progress",
+                "A download is already running. Stop it first before starting a new one.",
+            )
+            return
+
         exe_name = self.settings["exe_name"]
         exe_path = (
             Path(exe_name) if Path(exe_name).is_absolute() else APP_DIR / exe_name
         )
 
         if not exe_path.exists():
-            messagebox.showerror("Exec Error", f"Executable not found: {exe_path}")
+            messagebox.showerror(
+                "Executable Not Found", f"Executable not found:\n{exe_path}"
+            )
             return
 
         selected_ids = [did for did, checked in self.checked_depots.items() if checked]
         if not selected_ids:
             messagebox.showwarning(
-                "Warning", "Select at least one depot using the checkboxes."
+                "No Depot Selected", "Select at least one depot using the checkboxes."
             )
             return
 
         app_id = self.appid_entry.get().strip()
         if not app_id.isdigit():
-            messagebox.showerror("Error", "Invalid AppID: must be numeric.")
+            messagebox.showerror("Invalid AppID", "AppID must be numeric.")
             return
 
         appid_int = int(app_id)
         if not (APPID_MIN <= appid_int <= APPID_MAX):
             messagebox.showerror(
-                "Error", f"AppID out of range ({APPID_MIN} \u2013 {APPID_MAX})."
+                "Invalid AppID", f"AppID out of range ({APPID_MIN} \u2013 {APPID_MAX})."
             )
             return
 
-        self.download_btn.config(state="disabled")
-        self.stop_btn.config(state="normal")
         self.fetch_btn.config(state="disabled")
         self.load_btn.config(state="disabled")
 
@@ -621,29 +633,47 @@ class App(tk.Tk):
         )
 
     def _on_stop_click(self) -> None:
-        if self._inner_task and not self._inner_task.done():
-            self.stop_btn.config(state="disabled")
-            self.log_safe("⚠️ Stop requested, terminating processes...")
+        if self._inner_task is not None and not self._inner_task.done():
+            self.log_safe(
+                "[DepotDownloaderMod] Stop requested, terminating processes..."
+            )
             self.loop.call_soon_threadsafe(self._inner_task.cancel)
+        else:
+            messagebox.showinfo(
+                "No Download In Progress",
+                "There is no active download to stop.",
+            )
 
     async def _process_downloads(
-        self, selected_ids: list, exe_path: Path, app_id: str
+        self,
+        selected_ids: list,
+        exe_path: Path,
+        app_id: str,
+        output_dir: Optional[Path] = None,
     ) -> None:
         self._inner_task = asyncio.current_task()
 
+        if output_dir is None:
+            output_dir = APP_DIR / "saved_depot" / app_id
+        output_dir.mkdir(parents=True, exist_ok=True)
+
         downloader = DownloadManager(
-            self.settings, self.inventory, self._current_temp_dir, self.log_safe
+            self.settings,
+            self.inventory,
+            self._current_temp_dir,
+            self.log_safe,
+            output_dir=output_dir,
         )
 
         try:
             await downloader.run_downloads(selected_ids, exe_path, app_id)
             self.after(
-                0, lambda: messagebox.showinfo("Completed", "All downloads completed.")
+                0, lambda: messagebox.showinfo("Done", "All downloads completed.")
             )
         except asyncio.CancelledError:
             self.after(
                 0,
-                lambda: messagebox.showwarning(
+                lambda: messagebox.showinfo(
                     "Cancelled", "Downloads successfully cancelled."
                 ),
             )
@@ -651,14 +681,12 @@ class App(tk.Tk):
             self.after(
                 0,
                 lambda: messagebox.showwarning(
-                    "Completed with errors",
-                    "Depot download encountered errors. Check the log for details.",
+                    "Completed With Errors",
+                    "Depot download encountered errors. See depot_manager.log for details.",
                 ),
             )
         finally:
             self._inner_task = None
             self.download_task = None
-            self.after(0, lambda: self.download_btn.config(state="normal"))
-            self.after(0, lambda: self.stop_btn.config(state="disabled"))
             self.after(0, lambda: self.fetch_btn.config(state="normal"))
             self.after(0, lambda: self.load_btn.config(state="normal"))

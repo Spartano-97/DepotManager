@@ -1,12 +1,16 @@
+"""ZIP extraction, depot inventory scanning, and LumaCore lua helpers."""
+
 import logging
 import zipfile
 from pathlib import Path
+from typing import Optional
 
 from .config import _RE_LUA_ADDAPPID, _RE_LUA_TABLE, _RE_MANIFEST
 
 logger = logging.getLogger("DepotManager.Parser")
 
 
+# --- EXTRACTION & SCAN ---
 def safe_extract(zip_path: Path, extract_to: Path) -> None:
     """Extracts a ZIP file safely while preventing Zip Slip vulnerabilities."""
     extract_to_res = extract_to.resolve()
@@ -32,7 +36,6 @@ def scan_directory(temp_dir: Path) -> dict:
                 content = f.read()
             if "\ufffd" in content:
                 logger.warning("Lua file with problematic encoding: %s", lua_file.name)
-
         except OSError as exc:
             logger.warning("Cannot read %s: %s", lua_file.name, exc)
             continue
@@ -51,3 +54,37 @@ def scan_directory(temp_dir: Path) -> dict:
             ] = m
 
     return inv
+
+
+# --- LUMACORE HELPERS ---
+def get_lua_file(temp_dir: Path, appid: str) -> Optional[Path]:
+    """Locate the lua for ``appid`` inside an extracted API archive.
+
+    Preference: ``<appid>.lua`` exact match, then first ``*.lua`` with a
+    digit-only stem, then first ``*.lua`` in the directory. None if empty.
+    """
+    direct = temp_dir / f"{appid}.lua"
+    if direct.is_file():
+        return direct
+    candidates = sorted(temp_dir.glob("*.lua"))
+    for c in candidates:
+        if c.stem.isdigit():
+            return c
+    return candidates[0] if candidates else None
+
+
+def manifest_gid_from_name(name: str) -> Optional[str]:
+    """Extract the manifest GID from a ``<depot>_<gid>.manifest`` filename.
+
+    Returns the GID string, or None if the name doesn't match. Accepts a
+    full path or a bare filename.
+    """
+    from pathlib import Path as _Path
+
+    base = (
+        _Path(name).name
+        if not isinstance(name, str) or "/" in name or "\\" in name
+        else name
+    )
+    m = _RE_MANIFEST.match(base)
+    return m.group(2) if m else None

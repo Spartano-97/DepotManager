@@ -2,11 +2,11 @@
 
 
 a = Analysis(
-    ["run_depot_manager.py"],
+    ['run_depot_manager.py'],
     pathex=[],
     binaries=[],
-    datas=[("DepotManager/icon.ico", ".")],
-    hiddenimports=[],
+    datas=[('DepotManager/icon.ico', '.')],
+    hiddenimports=['vdf', 'pathvalidate'],
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
@@ -22,7 +22,7 @@ exe = EXE(
     a.binaries,
     a.datas,
     [],
-    name="DepotManager",
+    name='DepotManager',
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
@@ -35,6 +35,6 @@ exe = EXE(
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
-    version="version_info.txt",
-    icon=["DepotManager\\icon.ico"],
+    version='version_info.txt',
+    icon=['DepotManager\\icon.ico'],
 )
